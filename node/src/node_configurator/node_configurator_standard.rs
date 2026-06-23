@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::bootstrapper::BootstrapperConfig;
-use crate::node_configurator::DirsWrapperReal;
-use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
+use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
+use crate::node_configurator::{initialize_database, DirsWrapper, FieldPair, NodeConfigurator};
+use crate::node_configurator::{ConfigInitializationData, DirsWrapperReal};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::multi_config::MultiConfig;
-use masq_lib::shared_schema::{ConfigFile, ConfiguratorError, InsecurePort, IpAddrs};
-use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
+use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
+use masq_lib::shared_schema::{ConfiguratorError, OnOff};
+use masq_lib::utils::NeighborhoodModeLight;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -22,13 +22,15 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals, real_user_data_directory_path_and_chain,
+    data_directory_from_context, determine_user_specific_data,
+    real_user_data_directory_path_and_chain,
 };
-use crate::server_initializer::GatheredParams;
-use crate::sub_lib::cryptde::PublicKey;
+use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use itertools::Itertools;
@@ -62,7 +64,7 @@ impl Default for NodeConfiguratorStandardPrivileged {
 impl NodeConfiguratorStandardPrivileged {
     pub fn new() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal {}),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -80,6 +82,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             DbInitializationConfig::create_or_migrate(ExternalData::from((self, multi_config))),
+            &value_m!(multi_config, "db-password", String),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         let parse_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -90,6 +93,18 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
             &self.logger,
         )?;
         configure_database(&unprivileged_config, persistent_config.as_mut())?;
+        let cryptde_pair = if multi_config.occurrences_of("fake-public-key") == 0 {
+            let new_public_key = value_m!(multi_config, "new-public-key", OnOff);
+
+            configure_cryptdes(
+                new_public_key,
+                persistent_config.as_mut(),
+                &unprivileged_config.db_password_opt,
+            )
+        } else {
+            configure_fake_cryptdes(multi_config)
+        };
+        unprivileged_config.cryptde_pair = cryptde_pair;
         Ok(unprivileged_config)
     }
 }
@@ -129,35 +144,107 @@ fn collect_externals_from_multi_config(
     )
 }
 
+fn extract_values_vcl_fill_multiconfig_vec(
+    full_multi_config: MultiConfig,
+    initialization_data: ConfigInitializationData,
+) -> Vec<String> {
+    let config_file_path = initialization_data.config_file.item;
+    let check_value_from_mc =
+        |multi_config_value: Option<String>,
+         initialization_data_val: &str,
+         initialization_data_spec: bool| match multi_config_value {
+            Some(arg) => FieldPair {
+                item: arg,
+                user_specified: true,
+            },
+            None => FieldPair {
+                item: initialization_data_val.to_string(),
+                user_specified: initialization_data_spec,
+            },
+        };
+    let cf_real_user = check_value_from_mc(
+        value_m!(full_multi_config, "real-user", String),
+        initialization_data.real_user.item.to_string().as_str(),
+        initialization_data.real_user.user_specified,
+    );
+    let mut specified_vec: Vec<String> = vec!["".to_string()];
+    let fill_the_box =
+        |key: &str, value: &str, vec: &mut Vec<String>| match vec.contains(&key.to_string()) {
+            true => {
+                let index = vec
+                    .iter()
+                    .position(|r| r == key)
+                    .expect("expected index of vcl name")
+                    + 1;
+                vec[index] = value.to_string();
+            }
+            false => {
+                vec.push(key.to_string());
+                vec.push(value.to_string());
+            }
+        };
+    fill_the_box(
+        "--config-file",
+        config_file_path.as_path().to_string_lossy().as_ref(),
+        &mut specified_vec,
+    );
+    fill_the_box(
+        "--data-directory",
+        initialization_data
+            .data_directory
+            .item
+            .to_string_lossy()
+            .as_ref(),
+        &mut specified_vec,
+    );
+    fill_the_box(
+        "--real-user",
+        cf_real_user.item.as_str(),
+        &mut specified_vec,
+    );
+
+    specified_vec
+}
+
 pub fn server_initializer_collected_params(
     dirs_wrapper: &dyn DirsWrapper,
     args: &[String],
-) -> Result<GatheredParams, ConfiguratorError> {
+) -> Result<MultiConfig<'a>, ConfiguratorError> {
     let app = app_node();
-
-    let (config_file_path, user_specified, data_directory, real_user) =
-        determine_fundamentals(dirs_wrapper, &app, args)?;
-
-    let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
-        Ok(cfv) => Box::new(cfv),
+    let initialization_data = determine_user_specific_data(dirs_wrapper, &app, args)?;
+    let config_file_vcl = match ConfigFileVcl::new(
+        &initialization_data.config_file.item,
+        initialization_data.config_file.user_specified,
+    ) {
+        Ok(cfv) => cfv,
         Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
     };
-    let full_multi_config = make_new_multi_config(
+
+    let environment_vcl = EnvironmentVcl::new(&app);
+    let commandline_vcl = CommandLineVcl::new(args.to_vec());
+    let multiconfig_for_values_extraction = make_new_multi_config(
         &app,
         vec![
-            Box::new(CommandLineVcl::new(args.to_vec())),
+            Box::new(config_file_vcl.clone()),
             Box::new(EnvironmentVcl::new(&app)),
-            config_file_vcl,
+            Box::new(CommandLineVcl::new(commandline_vcl.args())),
         ],
-    )?;
-    let config_file_path =
-        value_m!(full_multi_config, "config-file", ConfigFile).expect("defaulted param").path;
-    Ok(GatheredParams::new(
-        full_multi_config,
-        config_file_path,
-        real_user,
-        data_directory,
-    ))
+    )
+    .expect("expected MultiConfig");
+    let specified_vec = extract_values_vcl_fill_multiconfig_vec(
+        multiconfig_for_values_extraction,
+        initialization_data,
+    );
+    let mut multi_config_args_vec: Vec<Box<dyn VirtualCommandLine>> = vec![
+        Box::new(config_file_vcl),
+        Box::new(environment_vcl),
+        Box::new(commandline_vcl),
+    ];
+    multi_config_args_vec.push(Box::new(CommandLineVcl::new(specified_vec)));
+
+    let full_multi_config = make_new_multi_config(&app, multi_config_args_vec)?;
+
+    Ok(full_multi_config)
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
@@ -200,6 +287,15 @@ pub fn privileged_parse_args(
         .map(|ip_addrs| ip_addrs.ips.iter().map(|ip| SocketAddr::new(*ip, 53)).collect_vec());
     privileged_config.dns_servers = dns_servers_opt
         .unwrap_or_else(|| vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 53)]);
+
+    privileged_config.new_public_key_opt = match value_m!(multi_config, "new-public-key", String) {
+        Some(value) => match value.as_str() {
+            "on" => Some(true),
+            "off" => Some(false),
+            _ => panic!("Bad clap validation for new-public-key: {}", value),
+        },
+        None => None,
+    };
 
     privileged_config.log_level =
         value_m!(multi_config, "log-level", masq_lib::shared_schema::LogLevel)
@@ -266,11 +362,80 @@ fn configure_database(
     Ok(())
 }
 
+fn configure_cryptdes(
+    new_public_key: Option<OnOff>,
+    persistent_config: &mut dyn PersistentConfiguration,
+    db_password_opt: &Option<String>,
+) -> CryptDEPair {
+    let cryptde_pair = if let Some(db_password) = db_password_opt {
+        let chain = Chain::from(persistent_config.chain_name().as_str());
+        let main_result = match new_public_key {
+            None | Some(OnOff::Off) => persistent_config.cryptde(db_password),
+            Some(OnOff::On) => {
+                let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                persistent_config
+                    .set_cryptde(main_cryptde.as_ref(), db_password)
+                    .expect("Failed to set cryptde");
+                Ok(Some(main_cryptde))
+            }
+        };
+        match main_result {
+            Ok(Some(last_main_cryptde)) => {
+                CryptDEPair::new(last_main_cryptde, Box::new(CryptDEReal::new(chain)))
+            }
+            Ok(None) => {
+                if new_public_key == Some(OnOff::Off) {
+                    panic!("--new-public-key off: Cannot reestablish old public key: no old public key available");
+                }
+                let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                persistent_config
+                    .set_cryptde(main_cryptde.as_ref(), db_password)
+                    .expect("Failed to set cryptde");
+                let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+                CryptDEPair::new(main_cryptde, alias_cryptde)
+            }
+            Err(e) => panic!("Could not read last cryptde from database: {:?}", e),
+        }
+    } else {
+        if new_public_key == Some(OnOff::Off) {
+            panic!("--new-public-key off: Cannot reestablish old public key: no --db-password provided");
+        }
+        let chain = Chain::from(persistent_config.chain_name().as_str());
+        let main_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+        let alias_cryptde: Box<dyn CryptDE> = Box::new(CryptDEReal::new(chain));
+        CryptDEPair::new(main_cryptde, alias_cryptde)
+    };
+    cryptde_pair
+}
+
+fn configure_fake_cryptdes(multi_config: &MultiConfig) -> CryptDEPair {
+    let public_key_str =
+        value_m!(multi_config, "fake-public-key", String).expect("fake-public-key disappeared");
+    let main_public_key_data =
+        base64::decode(&public_key_str).expect("fake-public-key: invalid Base64");
+    let main_public_key = PublicKey::new(&main_public_key_data);
+    let main_cryptde = CryptDENull::from(
+        &main_public_key,
+        Chain::Dev, // Always Dev chain for signing with --fake-public-key
+    );
+    let alias_public_key_data = main_public_key_data
+        .iter()
+        .rev()
+        .cloned()
+        .collect::<Vec<u8>>();
+    let alias_public_key = PublicKey::new(&alias_public_key_data);
+    let alias_cryptde = CryptDENull::from(
+        &alias_public_key,
+        Chain::Dev, // Always Dev chain for signing with --fake-public-key
+    );
+    CryptDEPair::new(Box::new(main_cryptde), Box::new(alias_cryptde))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
-    use crate::bootstrapper::{BootstrapperConfig, RealUser};
+    use crate::bootstrapper::{BootstrapperConfig, CryptDEPair, RealUser};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -278,6 +443,7 @@ mod tests {
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::neighborhood::{
         NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
@@ -288,21 +454,28 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
+    use crate::test_utils::{assert_string_contains, ArgsBuilder};
+    use lazy_static::lazy_static;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
+    use masq_lib::shared_schema::ParamError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{running_test, slice_of_strs_to_vec_of_strings};
+    use masq_lib::utils::running_test;
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    use std::fs::File;
+    use std::env::current_dir;
+    use std::fs::{canonicalize, create_dir_all, File};
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::vec;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -311,7 +484,7 @@ mod tests {
             "node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real",
         );
         let neighbor = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
         ))
         .unwrap()];
@@ -326,6 +499,8 @@ mod tests {
                 .unwrap();
         }
         let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
             "--chain",
             "eth-mainnet",
             "--db-password",
@@ -356,7 +531,98 @@ mod tests {
     }
 
     #[test]
+    fn node_configurator_standard_unprivileged_sets_db_password_for_the_first_time() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_sets_db_password_for_the_first_time",
+        );
+        let persistent_config = {
+            let conn = DbInitializerReal::default()
+                .initialize(home_dir.as_path(), DbInitializationConfig::test_default())
+                .unwrap();
+            PersistentConfigurationReal::from(conn)
+        };
+        let multi_config = make_simplified_multi_config([
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--chain",
+            "eth-mainnet",
+            "--db-password",
+            "password",
+            "--ip",
+            "1.2.3.4",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let result = subject.configure(&multi_config).unwrap();
+
+        assert_eq!(result.db_password_opt, Some("password".to_string()));
+        assert_eq!(
+            persistent_config
+                .check_password(Some("password".to_string()))
+                .unwrap(),
+            true
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no --db-password provided"
+    )]
+    fn node_configurator_standard_unprivileged_complains_if_no_password_and_new_public_key_off() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_complains_if_no_password_and_new_public_key_off",
+        );
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-mainnet",
+            "--new-public-key",
+            "off",
+            "--ip",
+            "1.2.3.4",
+            "--blockchain-service-url",
+            "https://booga.com",
+        ]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let _ = subject.configure(&multi_config).unwrap();
+    }
+
+    #[test]
+    fn node_configurator_standard_unprivileged_handles_fake_public_key() {
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "node_configurator_standard_unprivileged_handles_fake_public_key",
+        );
+        let multi_config =
+            make_simplified_multi_config(["--chain", "eth-mainnet", "--fake-public-key", "AQIDBA"]);
+        let mut privileged_config = BootstrapperConfig::default();
+        privileged_config.data_directory = home_dir;
+        let subject = NodeConfiguratorStandardUnprivileged {
+            privileged_config,
+            logger: Logger::new("test"),
+        };
+
+        let result = subject.configure(&multi_config).unwrap();
+
+        assert_eq!(result.cryptde_pair.main.public_key().to_string(), "AQIDBA");
+        assert_eq!(result.cryptde_pair.alias.public_key().to_string(), "BAMCAQ");
+    }
+
+    #[test]
     fn configure_database_handles_error_during_setting_clandestine_port() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = Some(1000);
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -372,6 +638,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_gas_price() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.clandestine_port_opt = None;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -389,6 +656,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_blockchain_service_url() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.blockchain_bridge_config.blockchain_service_url_opt =
             Some("https://infura.io/ID".to_string());
@@ -408,6 +676,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_neighborhood_mode() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = ZeroHop;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -424,6 +693,7 @@ mod tests {
 
     #[test]
     fn configure_database_handles_error_during_setting_min_hops() {
+        let _guard = EnvironmentGuard::new();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.min_hops = Hops::FourHops;
         let mut persistent_config = PersistentConfigurationMock::new()
@@ -438,14 +708,197 @@ mod tests {
         )
     }
 
+    #[test]
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no --db-password provided"
+    )]
+    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes_and_npk_off() {
+        let mut persistent_config = PersistentConfigurationMock::new();
+
+        configure_cryptdes(Some(OnOff::Off), &mut persistent_config, &None);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_password_with_uninitialized_cryptdes_and_npk_on() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string());
+
+        let _result = configure_cryptdes(Some(OnOff::On), &mut persistent_config, &None);
+
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(cryptde_params.len(), 0);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(set_cryptde_params.len(), 0);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_last_cryptde_with_no_npk_param() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(None))
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        let result = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        let call = &set_cryptde_params[0];
+        assert_eq!(call.0.public_key(), result.main.public_key());
+        assert_eq!(call.1, "db_password".to_string());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "--new-public-key off: Cannot reestablish old public key: no old public key available"
+    )]
+    fn configure_cryptdes_handles_missing_last_cryptde_with_npk_off() {
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(None));
+
+        configure_cryptdes(
+            Some(OnOff::Off),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_missing_last_cryptde_with_npk_on() {
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        let result = configure_cryptdes(
+            Some(OnOff::On),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        let call = &set_cryptde_params[0];
+        assert_eq!(call.0.public_key(), result.main.public_key());
+        assert_eq!(call.1, "db_password".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "Could not read last cryptde from database: NotPresent")]
+    fn configure_cryptdes_panics_if_database_throws_error() {
+        let _guard = EnvironmentGuard::new();
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Err(PersistentConfigError::NotPresent));
+
+        let _ = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database_with_no_npk_param() {
+        let _guard = EnvironmentGuard::new();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
+
+        let result = configure_cryptdes(
+            None,
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        assert_eq!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database_with_npk_off() {
+        let _guard = EnvironmentGuard::new();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .cryptde_params(&cryptde_params_arc)
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .cryptde_result(Ok(Some(stored_main_cryptde_box.dup())));
+
+        let result = configure_cryptdes(
+            Some(OnOff::Off),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        assert_eq!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let cryptde_params = cryptde_params_arc.lock().unwrap();
+        assert_eq!(*cryptde_params, vec!["db_password".to_string()]);
+    }
+
+    #[test]
+    fn configure_cryptdes_handles_populated_database_with_npk_on() {
+        let _guard = EnvironmentGuard::new();
+        let stored_main_cryptde_box = Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
+        let set_cryptde_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .chain_name_result(TEST_DEFAULT_CHAIN.to_string())
+            .set_cryptde_params(&set_cryptde_params_arc)
+            .set_cryptde_result(Ok(()));
+
+        let result = configure_cryptdes(
+            Some(OnOff::On),
+            &mut persistent_config,
+            &Some("db_password".to_string()),
+        );
+
+        assert_ne!(
+            result.main.public_key(),
+            stored_main_cryptde_box.public_key()
+        );
+        let set_cryptde_params = set_cryptde_params_arc.lock().unwrap();
+        assert_eq!(
+            set_cryptde_params[0].0.public_key(),
+            result.main.public_key()
+        );
+        assert_eq!(set_cryptde_params[0].1, "db_password".to_string());
+        assert_eq!(set_cryptde_params.len(), 1);
+    }
+
     fn make_default_cli_params() -> ArgsBuilder {
         ArgsBuilder::new().param("--ip", "1.2.3.4")
     }
 
     #[test]
     fn server_initializer_collected_params_can_read_parameters_from_config_file() {
-        running_test();
         let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
+        running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
             "server_initializer_collected_params_can_read_parameters_from_config_file",
@@ -457,14 +910,14 @@ mod tests {
                 .unwrap();
         }
         let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
-
-        let gathered_params = server_initializer_collected_params(
-            &directory_wrapper,
-            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", home_dir.to_str().unwrap()]),
-        )
-        .unwrap();
-
-        let multi_config = gathered_params.multi_config;
+        let args = ArgsBuilder::new().param("--data-directory", home_dir.to_str().unwrap());
+        let args_vec: Vec<String> = args.into();
+        let multi_config =
+            server_initializer_collected_params(&directory_wrapper, args_vec.as_slice()).unwrap();
+        assert_eq!(
+            value_m!(multi_config, "data-directory", String).unwrap(),
+            home_dir.to_str().unwrap()
+        );
         assert_eq!(
             value_m!(multi_config, "dns-servers", masq_lib::shared_schema::IpAddrs)
                 .unwrap()
@@ -475,6 +928,7 @@ mod tests {
 
     #[test]
     fn can_read_dns_servers_and_consuming_private_key_from_config_file() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -498,20 +952,25 @@ mod tests {
             .unwrap();
         }
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://booga.com")
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--ip", "1.2.3.4");
         let mut bootstrapper_config = BootstrapperConfig::new();
         let multi_config = make_new_multi_config(
             &app_node(),
             vec![
-                Box::new(CommandLineVcl::new(args.into())),
                 Box::new(ConfigFileVcl::new(&config_file_path, false).unwrap()),
+                Box::new(CommandLineVcl::new(args.into())),
             ],
         )
         .unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut bootstrapper_config)
-            .unwrap();
+        privileged_parse_args(
+            &DirsWrapperReal::default(),
+            &multi_config,
+            &mut bootstrapper_config,
+        )
+        .unwrap();
         let node_parse_args_configurator = UnprivilegedParseArgsConfigurationDaoNull {};
         node_parse_args_configurator
             .unprivileged_parse_args(
@@ -544,6 +1003,7 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_creates_configurations() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -562,7 +1022,6 @@ mod tests {
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--blockchain-service-url", "http://127.0.0.1:8545")
             .param("--log-level", "trace")
-            .param("--fake-public-key", "AQIDBA")
             .param("--db-password", "secret-db-password")
             .param(
                 "--earning-wallet",
@@ -572,14 +1031,15 @@ mod tests {
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
+            .param("--new-public-key", "on")
             .param("--real-user", "999:999:/home/booga")
-            .param("--chain", "polygon-mumbai");
+            .param("--chain", "polygon-amoy");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(
             value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path),
@@ -596,7 +1056,7 @@ mod tests {
         assert_eq!(
             config.neighborhood_config,
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
+                mode: ZeroHop, // not populated on the privileged side
                 min_hops: Hops::ThreeHops,
             }
         );
@@ -605,10 +1065,7 @@ mod tests {
             None,
         );
         assert_eq!(config.data_directory, home_dir);
-        assert_eq!(
-            config.main_cryptde_null_opt.unwrap().public_key(),
-            &PublicKey::new(&[1, 2, 3, 4]),
-        );
+        assert_eq!(config.new_public_key_opt, Some(true));
         assert_eq!(
             config.real_user,
             RealUser::new(Some(999), Some(999), Some(PathBuf::from("/home/booga")))
@@ -616,7 +1073,23 @@ mod tests {
     }
 
     #[test]
+    fn privileged_parse_args_works_with_on_off_parameters() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let args = ArgsBuilder::new().param("--new-public-key", "on");
+        let mut config = BootstrapperConfig::new();
+        let vcls: Vec<Box<dyn VirtualCommandLine>> =
+            vec![Box::new(CommandLineVcl::new(args.into()))];
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
+
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
+
+        assert_eq!(config.new_public_key_opt, Some(true));
+    }
+
+    #[test]
     fn privileged_parse_args_creates_configuration_with_defaults() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
         let mut config = BootstrapperConfig::new();
@@ -624,28 +1097,26 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
-        assert_eq!(
-            Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path)
-        );
+        assert_eq!(None, value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path));
         assert_eq!(
             config.dns_servers,
             vec!(SocketAddr::from_str("1.1.1.1:53").unwrap())
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
-        assert!(config.main_cryptde_null_opt.is_none());
+        assert_eq!(config.new_public_key_opt, None);
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn privileged_parse_args_with_real_user_defaults_data_directory_properly() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
@@ -655,7 +1126,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -674,6 +1145,7 @@ mod tests {
 
     #[test]
     fn privileged_parse_args_with_no_command_line_params() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = ArgsBuilder::new();
         let mut config = BootstrapperConfig::new();
@@ -681,58 +1153,529 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(args.into()))];
         let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
-        assert_eq!(
-            Some(PathBuf::from("config.toml")),
-            value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path)
-        );
+        assert_eq!(None, value_m!(multi_config, "config-file", masq_lib::shared_schema::ConfigFile).map(|cf| cf.path));
         assert_eq!(
             config.dns_servers,
             vec!(SocketAddr::from_str("1.1.1.1:53").unwrap())
         );
         assert_eq!(config.crash_point, CrashPoint::None);
         assert_eq!(config.ui_gateway_config.ui_port, DEFAULT_UI_PORT);
-        assert!(config.main_cryptde_null_opt.is_none());
+        assert_eq!(config.new_public_key_opt, None);
         assert_eq!(
             config.real_user,
-            RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+            RealUser::new(None, None, None).populate(&DirsWrapperReal::default())
         );
     }
 
     #[test]
     fn no_parameters_produces_configuration_for_crash_point() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = make_default_cli_params();
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::None);
     }
 
     #[test]
     fn with_parameters_produces_configuration_for_crash_point() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let args = make_default_cli_params().param("--crash-point", "panic");
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
         let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
+        privileged_parse_args(&DirsWrapperReal::default(), &multi_config, &mut config).unwrap();
 
         assert_eq!(config.crash_point, CrashPoint::Panic);
     }
 
+    fn fill_up_config_file(mut config_file: File) {
+        {
+            config_file
+                .write_all(b"blockchain-service-url = \"https://www.mainnet2.com\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"clandestine-port = \"7788\"\n")
+                .unwrap();
+            config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"None\"\n").unwrap();
+            config_file
+                .write_all(b"dns-servers = \"5.6.7.8\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"earning-wallet = \"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n")
+                .unwrap();
+            config_file.write_all(b"gas-price = \"77\"\n").unwrap();
+            config_file.write_all(b"ip = \"6.6.6.6\"\n").unwrap();
+            config_file.write_all(b"log-level = \"trace\"\n").unwrap();
+            config_file
+                .write_all(b"mapping-protocol = \"pcp\"\n")
+                .unwrap();
+            config_file.write_all(b"min-hops = \"6\"\n").unwrap();
+            config_file
+                .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"new-public-key = \"off\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
+                .unwrap();
+            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
+            config_file
+                .write_all(b"real-user = \"1002:1002:/home/wooga\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"scan-intervals = \"111|100|99\"\n")
+                .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
+        }
+    }
+
+    #[test]
+    fn server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf()
+    {
+        let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
+        running_test();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf",
+        );
+        let data_dir = &home_dir.join("data_dir");
+        let config_file_relative = File::create(PathBuf::from("./generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf").join("config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
+        let env_vec_array = vec![
+            ("MASQ_CONFIG_FILE", "./generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/config.toml"),
+        ];
+        env_vec_array
+            .clone()
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let args = ArgsBuilder::new();
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let env_multiconfig = result.unwrap();
+
+        assert_eq!(
+            value_m!(env_multiconfig, "dns-servers", String).unwrap(),
+            "5.6.7.8".to_string()
+        );
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(
+                value_m!(env_multiconfig, "real-user", String).unwrap(),
+                "1002:1002:/home/wooga".to_string()
+            );
+            assert_eq!(
+                value_m!(env_multiconfig, "config-file", String).unwrap(),
+                current_dir().unwrap().join(PathBuf::from( "./generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/config.toml")).to_string_lossy().to_string()
+            );
+        }
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            value_m!(env_multiconfig, "data-directory", String).unwrap(),
+            "generated/test/node_configurator_standard/server_initializer_collected_params_handle_dot_config_file_path_and_reads_arguments_from_cf/home\\data_dir\\MASQ\\base-mainnet".to_string()
+        );
+    }
+
+    #[test]
+    fn server_initializer_collected_params_handles_only_path_in_config_file_param() {
+        let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
+        running_test();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "server_initializer_collected_params_handles_only_path_in_config_file_param",
+        );
+        let home_dir = canonicalize(home_dir).unwrap();
+        let data_dir = &home_dir.join("data_dir");
+
+        let args = ArgsBuilder::new()
+            .param(
+                "--data-directory",
+                home_dir.clone().display().to_string().as_str(),
+            )
+            .param(
+                "--config-file",
+                home_dir.clone().display().to_string().as_str(),
+            );
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let result =
+            server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap_err();
+
+        #[cfg(target_os = "windows")]
+        let result_path = format!(
+            "Couldn't open configuration file \"{}\". Are you sure it exists?",
+            current_dir()
+                .expect("expected current dir")
+                .as_path()
+                .join(home_dir.as_path())
+                .to_str()
+                .unwrap()
+        );
+        #[cfg(not(target_os = "windows"))]
+        let result_path = format!(
+            "The permissions on configuration file \"{}\" make it unreadable.",
+            current_dir()
+                .expect("expected current dir")
+                .as_path()
+                .join(home_dir.as_path())
+                .to_str()
+                .unwrap()
+        );
+        let expected =
+            ConfiguratorError::new(vec![ParamError::new("config-file", result_path.as_str())]);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn server_initializer_collected_params_rewrite_config_files_parameters_from_command_line() {
+        let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
+        running_test();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "server_initializer_collected_params_rewrite_config_files_parameters_from_command_line",
+        );
+        let home_dir = canonicalize(home_dir).unwrap();
+        let data_dir = &home_dir.join("data_dir");
+        let config_file_relative = File::create(home_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
+        let env_vec_array = vec![("MASQ_CONFIG_FILE", home_dir.join("config.toml"))];
+        env_vec_array
+            .clone()
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet0.com")
+            .param("--real-user", "9999:9999:/home/booga")
+            .param("--ip", "8.5.7.6")
+            .param("--neighborhood-mode", "standard")
+            .param("--clandestine-port", "2345");
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let env_multiconfig = result.unwrap();
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            value_m!(env_multiconfig, "real-user", String).unwrap(),
+            "9999:9999:/home/booga".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "config-file", String).unwrap(),
+            home_dir.join("config.toml").display().to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "blockchain-service-url", String).unwrap(),
+            "https://www.mainnet0.com".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "ip", String).unwrap(),
+            "8.5.7.6".to_string()
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            value_m!(env_multiconfig, "data-directory", String).unwrap(),
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
+        );
+    }
+
+    #[test]
+    fn server_initializer_collected_params_rewrite_config_files_parameters_from_environment() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let _clap_guard = ClapGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "server_initializer_collected_params_rewrite_config_files_parameters_from_environment",
+        );
+        let home_dir = canonicalize(home_dir).unwrap();
+        let data_dir = &home_dir.join("data_dir");
+        let config_file = File::create(home_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file);
+        let env_vec_array = vec![
+            (
+                "MASQ_CONFIG_FILE",
+                home_dir.clone().join("config.toml").display().to_string(),
+            ),
+            (
+                "MASQ_BLOCKCHAIN_SERVICE_URL",
+                "https://www.mainnet0.com".to_string(),
+            ),
+            ("MASQ_REAL_USER", "9999:9999:/home/booga".to_string()),
+            ("MASQ_IP", "8.5.7.6".to_string()),
+        ];
+        env_vec_array
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let args = ArgsBuilder::new();
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let env_multiconfig = result.unwrap();
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            value_m!(env_multiconfig, "real-user", String).unwrap(),
+            "9999:9999:/home/booga".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "config-file", String).unwrap(),
+            home_dir.join("config.toml").display().to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "blockchain-service-url", String).unwrap(),
+            "https://www.mainnet0.com".to_string()
+        );
+        assert_eq!(
+            value_m!(env_multiconfig, "ip", String).unwrap(),
+            "8.5.7.6".to_string()
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            value_m!(env_multiconfig, "data-directory", String).unwrap(),
+            "/home/booga\\data_dir\\MASQ\\base-mainnet".to_string()
+        );
+    }
+
+    #[test]
+    fn tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let _clap_guard = ClapGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "tilde_in_config_file_path_from_commandline_and_args_uploaded_from_config_file",
+        );
+        let data_dir = home_dir.join("masqhome");
+        let _dir = create_dir_all(&data_dir);
+        let config_file_relative = File::create(data_dir.join("config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
+        let env_vec_array = vec![
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://www.mainnet2.com"),
+            #[cfg(not(target_os = "windows"))]
+            ("MASQ_REAL_USER", "9999:9999:booga"),
+        ];
+        env_vec_array
+            .clone()
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        #[cfg(not(target_os = "windows"))]
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet1.com")
+            .param("--config-file", "~/masqhome/config.toml")
+            .param("--data-directory", "~/masqhome");
+        #[cfg(target_os = "windows")]
+        let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "https://www.mainnet1.com")
+            .param("--config-file", "~\\masqhome\\config.toml")
+            .param("--data-directory", "~\\masqhome");
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&home_dir))),
+        };
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let multiconfig = result.unwrap();
+
+        assert_eq!(
+            value_m!(multiconfig, "data-directory", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(&data_dir)
+                .to_string_lossy()
+                .to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            current_dir()
+                .unwrap()
+                .join(data_dir)
+                .join(PathBuf::from("config.toml"))
+                .to_string_lossy()
+                .to_string()
+        );
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(
+                value_m!(multiconfig, "real-user", String).unwrap(),
+                "9999:9999:booga"
+            );
+        }
+        assert_eq!(
+            value_m!(multiconfig, "blockchain-service-url", String).unwrap(),
+            "https://www.mainnet1.com"
+        );
+        // finally we assert some value from config-file to proof we are reading it
+        assert_eq!(value_m!(multiconfig, "ip", String).unwrap(), "6.6.6.6");
+    }
+
+    #[test]
+    fn config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let _clap_guard = ClapGuard::new();
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","config_file_from_env_and_real_user_from_config_file_with_data_directory_from_command_line");
+        let data_dir = &home_dir.join("data_dir");
+        create_dir_all(home_dir.join("config")).expect("expected directory for config");
+        let config_file_relative = File::create(&home_dir.join("config/config.toml")).unwrap();
+        fill_up_config_file(config_file_relative);
+        vec![
+            ("MASQ_CONFIG_FILE", "config/config.toml"),
+            ("MASQ_DATA_DIRECTORY", "/unexistent/directory"),
+            #[cfg(not(target_os = "windows"))]
+            ("MASQ_REAL_USER", "999:999:/home/malooga"),
+        ]
+        .into_iter()
+        .for_each(|(name, value)| std::env::set_var(name, value));
+        let args = ArgsBuilder::new()
+            .param("--real-user", "1001:1001:cooga")
+            .param("--data-directory", &home_dir.to_string_lossy().to_string());
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let multiconfig = result.unwrap();
+
+        assert_eq!(
+            &value_m!(multiconfig, "data-directory", String).unwrap(),
+            &home_dir.to_string_lossy().to_string()
+        );
+        assert_eq!(value_m!(multiconfig, "ip", String).unwrap(), "6.6.6.6");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            &value_m!(multiconfig, "real-user", String).unwrap(),
+            "1001:1001:cooga"
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "If the config file is given with a naked relative path (config/config.toml), the data directory must be given to serve as the root for the config-file path."
+    )]
+    fn server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let _clap_guard = ClapGuard::new();
+        let home_dir = ensure_node_home_directory_exists( "node_configurator_standard","server_initializer_collected_params_fails_on_naked_dir_config_file_without_data_directory");
+        let data_dir = &home_dir.join("data_dir");
+        vec![("MASQ_CONFIG_FILE", "config/config.toml")]
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let args = ArgsBuilder::new();
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+
+        let _result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+    }
+
+    #[test]
+    fn server_initializer_collected_params_combine_vcls_properly() {
+        let _guard = EnvironmentGuard::new();
+        running_test();
+        let _clap_guard = ClapGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "server_initializer_collected_params_combine_vcls_properly",
+        );
+        let data_dir = &home_dir.join("data_dir");
+        let config_file = File::create(&home_dir.join("booga.toml")).unwrap();
+        fill_up_config_file(config_file);
+        let env_vec_array = vec![
+            ("MASQ_CONFIG_FILE", "booga.toml"),
+            ("MASQ_CLANDESTINE_PORT", "8888"),
+            ("MASQ_DNS_SERVERS", "1.2.3.4"),
+            ("MASQ_DATA_DIRECTORY", "/nonexistent/directory/home"),
+            #[cfg(not(target_os = "windows"))]
+            ("MASQ_REAL_USER", "9999:9999:booga"),
+        ];
+        env_vec_array
+            .clone()
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(data_dir.to_path_buf()));
+        let args = ArgsBuilder::new()
+            .param(
+                "--data-directory",
+                home_dir.to_string_lossy().to_string().as_str(),
+            )
+            .param("--clandestine-port", "1111")
+            .param("--real-user", "1001:1001:cooga");
+        let args_vec: Vec<String> = args.into();
+
+        let params = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice());
+        let multiconfig = params.as_ref().unwrap();
+
+        assert_eq!(
+            value_m!(multiconfig, "clandestine-port", String).unwrap(),
+            "1111".to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "dns-servers", String).unwrap(),
+            "1.2.3.4".to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "ip", String).unwrap(),
+            "6.6.6.6".to_string()
+        );
+        assert_eq!(
+            value_m!(multiconfig, "config-file", String).unwrap(),
+            home_dir.join("booga.toml").as_os_str().to_str().unwrap()
+        );
+        #[cfg(not(target_os = "windows"))]
+        {
+            assert_eq!(
+                value_m!(multiconfig, "real-user", String).unwrap(),
+                "1001:1001:cooga".to_string()
+            );
+        }
+    }
+
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
         let data_dir = home_dir.join("data_dir");
+        #[cfg(not(target_os = "windows"))]
         let args = ArgsBuilder::new()
-            .param("--config-file", "booga.toml") // nonexistent config file: should return error because user-specified
+            .param("--config-file", "/home/booga/booga.toml") // nonexistent config file: should return error because user-specified
+            .param("--chain", "polygon-mainnet");
+        #[cfg(target_os = "windows")]
+        let args = ArgsBuilder::new()
+            .param("--config-file", "C:\\home\\booga\\booga.toml") // nonexistent config file: should return error because user-specified
             .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
@@ -754,6 +1697,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_network_chain_selection_for_multinode() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
@@ -768,6 +1712,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -786,6 +1731,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_defaults_network_chain_selection_to_mainnet() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let subject = NodeConfiguratorStandardPrivileged::new();
@@ -807,6 +1753,7 @@ mod tests {
 
     #[test]
     fn privileged_configuration_accepts_ropsten_network_chain_selection() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -827,6 +1774,7 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_gets_parameter_gas_price() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
@@ -836,7 +1784,14 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4", "--gas-price", "57"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--gas-price",
+            "57",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -847,6 +1802,7 @@ mod tests {
 
     #[test]
     fn unprivileged_configuration_sets_default_gas_price_when_not_provided() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
@@ -856,7 +1812,12 @@ mod tests {
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
         subject.privileged_config.data_directory = data_dir;
-        let args = ["--ip", "1.2.3.4"];
+        let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
+            "--ip",
+            "1.2.3.4",
+        ];
 
         let config = subject
             .configure(&make_simplified_multi_config(args))
@@ -867,6 +1828,7 @@ mod tests {
 
     #[test]
     fn server_initializer_collected_params_rejects_invalid_gas_price() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let _clap_guard = ClapGuard::new();
         let args = ArgsBuilder::new().param("--gas-price", "unleaded");
@@ -891,14 +1853,16 @@ mod tests {
 
     #[test]
     fn configure_database_with_data_specified_on_command_line_and_in_database() {
+        let _guard = EnvironmentGuard::new();
         running_test();
+        let cryptde_pair = CryptDEPair::null();
         let mut config = BootstrapperConfig::new();
         let gas_price = 4u64;
         config.clandestine_port_opt = Some(1234);
         config.blockchain_bridge_config.gas_price = gas_price;
         config.neighborhood_config.mode =
             NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
-                main_cryptde(),
+                cryptde_pair.main.as_ref(),
                 format!(
                     "masq://{}:AQIDBA@1.2.3.4:1234/2345",
                     TEST_DEFAULT_CHAIN.rec().literal_identifier
@@ -949,6 +1913,7 @@ mod tests {
 
     #[test]
     fn configure_database_with_no_data_specified() {
+        let _guard = EnvironmentGuard::new();
         running_test();
         let config = BootstrapperConfig::new();
         let set_blockchain_service_params_arc = Arc::new(Mutex::new(vec![]));
@@ -980,6 +1945,7 @@ mod tests {
 
     #[test]
     fn external_data_is_properly_created_when_password_is_provided() {
+        let _guard = EnvironmentGuard::new();
         let mut configurator_standard =
             NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         configurator_standard
@@ -1005,6 +1971,7 @@ mod tests {
 
     #[test]
     fn external_data_is_properly_created_when_no_password_is_provided() {
+        let _guard = EnvironmentGuard::new();
         let mut configurator_standard =
             NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         configurator_standard
@@ -1029,16 +1996,21 @@ mod tests {
 
         let args = match (chain_opt, data_directory_opt) {
             (Some(chain_opt), Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga")
                 .param("--data-directory", data_directory_opt),
             (None, Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--data-directory", data_directory_opt)
                 .param("--real-user", "999:999:/home/cooga"),
             (Some(chain_opt), None) => ArgsBuilder::new()
+                .param("--blockchain-service-url", "https://booga.com")
                 .param("--chain", chain_opt)
                 .param("--real-user", "999:999:/home/cooga"),
-            (None, None) => ArgsBuilder::new().param("--real-user", "999:999:/home/cooga"),
+            (None, None) => ArgsBuilder::new()
+                .param("--real-user", "999:999:/home/cooga")
+                .param("--blockchain-service-url", "https://booga.com"),
         };
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = match data_directory_opt {
@@ -1050,45 +2022,47 @@ mod tests {
                 .data_dir_result(Some(PathBuf::from(standard_data_dir))),
         };
 
-        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
-            .unwrap()
-            .data_directory
-            .to_string_lossy()
-            .to_string();
+        let result =
+            server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap();
 
-        assert_eq!(result, expected.unwrap());
+        assert_eq!(
+            value_m!(result, "data-directory", String).unwrap(),
+            expected.unwrap()
+        );
     }
 
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory(
     ) {
+        let _guard = EnvironmentGuard::new();
+        let _clap_guard = ClapGuard::new();
         running_test();
         let home_dir = Path::new("/home/cooga");
-        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("polygon-mainnet");
-        let home_dir_poly_mumbai = home_dir.join(".local").join("MASQ").join("polygon-mumbai");
+        let home_dir_poly_main = home_dir.join(".local").join("MASQ").join("base-mainnet");
+        let home_dir_poly_amoy = home_dir.join(".local").join("MASQ").join("polygon-amoy");
         vec![
             (None, None, Some(home_dir_poly_main.to_str().unwrap())),
             (
-                Some("polygon-mumbai"),
+                Some("polygon-amoy"),
                 None,
-                Some(home_dir_poly_mumbai.to_str().unwrap()),
+                Some(home_dir_poly_amoy.to_str().unwrap()),
             ),
             (None, Some("/cooga"), Some("/cooga")),
-            (Some("polygon-mumbai"), Some("/cooga"), Some("/cooga")),
+            (Some("polygon-amoy"), Some("/cooga"), Some("/cooga")),
             (
                 None,
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
             (
                 None,
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
-                Some("/cooga/polygon-mumbai/polygon-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
+                Some("/cooga/polygon-amoy/base-mainnet"),
             ),
             (
-                Some("polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
-                Some("/cooga/polygon-mumbai"),
+                Some("polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
+                Some("/cooga/polygon-amoy"),
             ),
         ]
         .iter()

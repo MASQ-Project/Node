@@ -14,18 +14,20 @@ use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::ui_gateway::MessagePath;
 use masq_lib::utils::{add_chain_specific_directory, find_free_port};
+use std::net::TcpStream;
+use std::thread;
+use std::time::{Duration, SystemTime};
+use sysinfo::{ProcessExt, System, SystemExt};
 use utils::CommandConfig;
 
 #[tokio::test]
-async fn ui_requests_something_and_gets_corresponding_response() {
+async fn ui_requests_something_and_gets_corresponding_response_integration() {
     fdlimit::raise_fd_limit().unwrap();
+    let test_name = "ui_requests_something_and_gets_corresponding_response";
     let port = find_free_port();
-    let home_dir = ensure_node_home_directory_exists(
-        "ui_gateway_test",
-        "ui_requests_something_and_gets_corresponding_response",
-    );
+    let home_dir = ensure_node_home_directory_exists("ui_gateway_test", test_name);
     let mut node = utils::MASQNode::start_standard(
-        "ui_requests_something_and_gets_corresponding_response",
+        test_name,
         Some(
             CommandConfig::new()
                 .pair("--ui-port", &port.to_string())
@@ -56,6 +58,7 @@ async fn ui_requests_something_and_gets_corresponding_response() {
 
 #[tokio::test]
 async fn log_broadcasts_are_correctly_received_integration() {
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit().unwrap();
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
@@ -94,20 +97,39 @@ async fn log_broadcasts_are_correctly_received_integration() {
     node.wait_for_exit();
 }
 
+fn wait_for_masq_node_ends() {
+    let mut system = System::new_all();
+    let deadline = SystemTime::now() + Duration::from_secs(5);
+    loop {
+        if SystemTime::now() > deadline {
+            panic!("Previous instance of MASQNode does not stops");
+        }
+        system.refresh_all();
+        if system
+            .processes()
+            .into_iter()
+            .find(|(_, process)| process.name().contains("MASQNode"))
+            .is_none()
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
 #[tokio::test]
 async fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     //Daemon's probe to check if the Node is alive causes an unwanted new reference
     //for the Daemon's client, so we need to make the Daemon send a close message
     //breaking any reference to him immediately
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit().unwrap();
-    let data_directory = ensure_node_home_directory_exists(
-        "ui_gateway_test",
-        "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
-    );
+    let test_name = "daemon_does_not_allow_node_to_keep_his_client_alive_integration";
+    let data_directory = ensure_node_home_directory_exists("ui_gateway_test", test_name);
     let expected_chain_data_dir = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
-        "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
+        test_name,
         Some(CommandConfig::new().pair("--ui-port", daemon_port.to_string().as_str())),
         true,
         true,
@@ -119,9 +141,10 @@ async fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: (MessagePath, UiSetupResponse) = daemon_client
         .transact(UiSetupRequest::new(vec![
             ("ip", Some("100.80.1.1")),
-            ("chain", Some("polygon-mainnet")),
+            ("chain", Some("base-mainnet")),
             ("neighborhood-mode", Some("standard")),
             ("log-level", Some("trace")),
+            ("blockchain-service-url", Some("https://www.example.com")),
             ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .await
@@ -165,6 +188,13 @@ async fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let assertion_lookup_pattern_2 =
         |_port_spec_ui: &str| "Received shutdown order from client 1".to_string();
     let second_port = connected_and_disconnected_assertion(2, assertion_lookup_pattern_2);
+    //TODO Card #806 "Test utility to easily verify the Node's termination"
+    loop {
+        if let Ok(_stream) = TcpStream::connect(format!("127.0.0.1:{}", ui_redirect.port)) {
+        } else {
+            break;
+        }
+    }
     let _ = daemon.kill();
     daemon.wait_for_exit();
     //only an additional assertion checking the involved clients to have different port numbers
@@ -173,10 +203,12 @@ async fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
 
 #[tokio::test]
 async fn cleanup_after_deceased_clients_integration() {
+    wait_for_masq_node_ends();
     fdlimit::raise_fd_limit().unwrap();
+    let test_name = "cleanup_after_deceased_clients_integration";
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
-        "cleanup_after_deceased_clients_integration",
+        test_name,
         Some(
             CommandConfig::new()
                 .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)

@@ -190,7 +190,9 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::new(None, None, None).populate(&DirsWrapperReal {}));
+        subject.drop_privileges(
+            &RealUser::new(None, None, None).populate(&DirsWrapperReal::default()),
+        );
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -283,7 +285,9 @@ mod tests {
         let mut subject = PrivilegeDropperReal::new();
         subject.id_wrapper = Box::new(id_wrapper);
 
-        subject.drop_privileges(&RealUser::new(None, None, None).populate(&DirsWrapperReal {}));
+        subject.drop_privileges(
+            &RealUser::new(None, None, None).populate(&DirsWrapperReal::default()),
+        );
 
         let setuid_params = setuid_params_arc.lock().unwrap();
         assert!(setuid_params.is_empty());

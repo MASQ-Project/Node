@@ -25,7 +25,7 @@ use masq_lib::shared_schema::{
     PrivateKey as SchemaPrivateKey, PublicKey, RatePack as SchemaRatePack,
     ScanIntervals as SchemaScanIntervals, Wallet as SchemaWallet,
 };
-use masq_lib::utils::{AutomapProtocol, ExpectValue};
+use masq_lib::utils::{to_string, AutomapProtocol, ExpectValue};
 use masq_lib::shared_schema::NeighborhoodMode as SchemaNeighborhoodMode;
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
@@ -43,16 +43,27 @@ pub trait UnprivilegedParseArgsConfiguration {
     ) -> Result<(), ConfiguratorError> {
         unprivileged_config
             .blockchain_bridge_config
-            .blockchain_service_url_opt =
-            if multi_config.is_present("blockchain-service-url") {
-                value_m!(multi_config, "blockchain-service-url", Url).map(|url| url.to_string())
-            } else {
-                match persistent_config.blockchain_service_url() {
-                    Ok(Some(price)) => Some(price),
-                    Ok(None) => None,
-                    Err(pce) => return Err(pce.into_configurator_error("gas-price")),
+            .blockchain_service_url_opt = if
+            multi_config.is_present("blockchain-service-url",
+        ) {
+            value_m!(multi_config, "blockchain-service-url", Url).map(|url| url.to_string())
+        } else {
+            match persistent_config.blockchain_service_url() {
+                Ok(Some(blockchain_service_url)) => Some(blockchain_service_url),
+                Ok(None) => {
+                    if self.blockchain_service_url_error(multi_config) {
+                        return Err(MultiConfig::make_configurator_error(Error {
+                                message: "The following required argument was not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+                                kind: clap::ErrorKind::ArgumentNotFound,
+                                info: Some(vec!["<blockchain-service-url>".to_string()]),
+                            }));
+                    } else {
+                        None
+                    }
                 }
-            };
+                Err(pce) => return Err(pce.into_configurator_error("blockchain-service-url")),
+            }
+        };
         unprivileged_config.clandestine_port_opt = value_m!(multi_config, "clandestine-port", InsecurePort)
             .map (|insecure_port| insecure_port.port);
         unprivileged_config.blockchain_bridge_config.gas_price =
@@ -78,6 +89,14 @@ pub trait UnprivilegedParseArgsConfiguration {
         mnc_result.map(|config| unprivileged_config.neighborhood_config = config)
     }
 
+    fn blockchain_service_url_error(&self, multi_config: &MultiConfig) -> bool {
+        let no_zerohop =
+            value_m!(multi_config, "neighborhood-mode", String) != Some("zero-hop".to_string());
+        let no_fake_public_key = value_m!(multi_config, "fake-public-key", String) == None;
+        let no_crash_point = value_m!(multi_config, "crash-point", String) == None;
+        no_zerohop && no_fake_public_key && no_crash_point
+    }
+
     fn get_past_neighbors(
         &self,
         persistent_config: &mut dyn PersistentConfiguration,
@@ -93,27 +112,25 @@ impl UnprivilegedParseArgsConfiguration for UnprivilegedParseArgsConfigurationDa
         persistent_config: &mut dyn PersistentConfiguration,
         unprivileged_config: &mut BootstrapperConfig,
     ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
-        Ok(
-            match &get_db_password(unprivileged_config, persistent_config)? {
-                Some(db_password) => match persistent_config.past_neighbors(db_password) {
-                    Ok(Some(past_neighbors)) => past_neighbors,
-                    Ok(None) => vec![],
-                    Err(PersistentConfigError::PasswordError) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "db-password",
-                            "PasswordError",
-                        )]))
-                    }
-                    Err(e) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "[past neighbors]",
-                            &format!("{:?}", e),
-                        )]))
-                    }
-                },
-                None => vec![],
+        Ok(match &unprivileged_config.db_password_opt {
+            Some(db_password) => match persistent_config.past_neighbors(db_password) {
+                Ok(Some(past_neighbors)) => past_neighbors,
+                Ok(None) => vec![],
+                Err(PasswordError) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "db-password",
+                        "PasswordError",
+                    )]))
+                }
+                Err(e) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "[past neighbors]",
+                        &format!("{:?}", e),
+                    )]))
+                }
             },
-        )
+            None => vec![],
+        })
     }
 }
 
@@ -141,7 +158,7 @@ pub fn get_wallets(
     let pc_consuming_opt = if let Some(db_password) = &config.db_password_opt {
         match persistent_config.consuming_wallet_private_key(db_password.as_str()) {
             Ok(pco) => pco,
-            Err(PersistentConfigError::PasswordError) => None,
+            Err(PasswordError) => None,
             Err(e) => return Err(e.into_configurator_error("consuming-private-key")),
         }
     } else {
@@ -486,7 +503,7 @@ fn configure_accountant_config(
         persist_config,
     )?;
 
-    check_payment_thresholds(&payment_thresholds)?;
+    validate_payment_thresholds(&payment_thresholds)?;
 
     let scan_intervals_cli_opt = value_m!(multi_config, "scan-intervals", SchemaScanIntervals)
         .map(|v| parse_combined_parameter("scan-intervals", v))
@@ -501,17 +518,18 @@ fn configure_accountant_config(
 
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
-    config.suppress_initial_scans = suppress_initial_scans;
+    config.automatic_scans_enabled = automatic_scans_enabled;
     config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
 
-fn check_payment_thresholds(
+fn validate_payment_thresholds(
     payment_thresholds: &PaymentThresholds,
 ) -> Result<(), ConfiguratorError> {
     if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei {
         let msg = format!(
-            "Value of DebtThresholdGwei ({}) must be bigger than PermanentDebtAllowedGwei ({})",
+            "Value of DebtThresholdGwei ({}) must be bigger than PermanentDebtAllowedGwei ({}) \
+            as the smallest value",
             payment_thresholds.debt_threshold_gwei, payment_thresholds.permanent_debt_allowed_gwei
         );
         return Err(ConfiguratorError::required("payment-thresholds", &msg));
@@ -525,6 +543,21 @@ fn check_payment_thresholds(
     Ok(())
 }
 
+fn validate_scan_intervals(scan_intervals: &ScanIntervals) -> Result<(), ConfiguratorError> {
+    if scan_intervals.payable_scan_interval < scan_intervals.pending_payable_scan_interval {
+        Err(ConfiguratorError::required(
+            "scan-intervals",
+            &format!(
+            "The PendingPayableScanInterval value ({} s) must not exceed the PayableScanInterval \
+            value ({} s) and should ideally be approximately half of it",
+            scan_intervals.pending_payable_scan_interval.as_secs(),
+            scan_intervals.payable_scan_interval.as_secs()),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn configure_rate_pack(
     multi_config: &MultiConfig,
     persist_config: &mut dyn PersistentConfiguration,
@@ -536,7 +569,49 @@ fn configure_rate_pack(
         "rate-pack",
         rate_pack_cli_opt,
         persist_config,
-    )
+    ) {
+        Ok(rate_pack) => {
+            let rate_pack_limits = match persist_config.rate_pack_limits() {
+                Ok(rpl) => rpl,
+                Err(e) => return Err(e.into_configurator_error("rate-pack")),
+            };
+            let mut error = ConfiguratorError::new(vec![]);
+            error = check_min_and_max(
+                rate_pack.routing_byte_rate,
+                rate_pack_limits.lo.routing_byte_rate,
+                rate_pack_limits.hi.routing_byte_rate,
+                "routing_byte_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.routing_service_rate,
+                rate_pack_limits.lo.routing_service_rate,
+                rate_pack_limits.hi.routing_service_rate,
+                "routing_service_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.exit_byte_rate,
+                rate_pack_limits.lo.exit_byte_rate,
+                rate_pack_limits.hi.exit_byte_rate,
+                "exit_byte_rate",
+                error,
+            );
+            error = check_min_and_max(
+                rate_pack.exit_service_rate,
+                rate_pack_limits.lo.exit_service_rate,
+                rate_pack_limits.hi.exit_service_rate,
+                "exit_service_rate",
+                error,
+            );
+            if !error.is_empty() {
+                Err(error)
+            } else {
+                Ok(rate_pack)
+            }
+        }
+        Err(e) => Err(e),
+    }
 }
 
 fn parse_combined_parameter<T, S>(parameter_name: &str, schema_value: S) -> Result<T, ConfiguratorError>
@@ -656,12 +731,17 @@ fn set_db_password_at_first_mention(
     }
 }
 
+fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
+    multi_config.occurrences_of(parameter) > 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::ThresholdUtils;
+    use crate::accountant::db_access_objects::utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
@@ -679,7 +759,8 @@ mod tests {
         make_persistent_config_real_with_config_dao_null, make_simplified_multi_config,
         ACCOUNTANT_CONFIG_PARAMS, MAPPING_PROTOCOL, RATE_PACK, ZERO,
     };
-    use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
+    use lazy_static::lazy_static;
     use masq_lib::constants::DEFAULT_GAS_PRICE;
     use masq_lib::multi_config::{CommandLineVcl, NameValueVclArg, VclArg, VirtualCommandLine};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -689,6 +770,11 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use PersistentConfigError::{DatabaseError, TransactionError};
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -774,8 +860,8 @@ mod tests {
             ))],
         )
         .unwrap();
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .min_hops_result(Err(PersistentConfigError::NotPresent));
+        let mut persistent_config =
+            PersistentConfigurationMock::new().min_hops_result(Err(NotPresent));
 
         let _result = make_neighborhood_config(
             &UnprivilegedParseArgsConfigurationDaoReal {},
@@ -934,7 +1020,7 @@ mod tests {
             NeighborhoodMode::OriginateOnly(
                 vec![
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        CRYPTDE_PAIR.main.as_ref(),
                         format!(
                             "masq://{}:VGhlc2UgYXJlIHRoZSB0aW1lcw@1.2.3.4:1234/2345",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -943,7 +1029,7 @@ mod tests {
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        CRYPTDE_PAIR.main.as_ref(),
                         format!(
                             "masq://{}:dGhhdCB0cnkgbWVuJ3Mgc291bHM@2.3.4.5:3456/4567",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -1009,7 +1095,7 @@ mod tests {
             result.unwrap().mode,
             NeighborhoodMode::ConsumeOnly(vec![
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    CRYPTDE_PAIR.main.as_ref(),
                     format!(
                         "masq://{}:QmlsbA@1.2.3.4:1234/2345",
                         DEFAULT_CHAIN.rec().literal_identifier
@@ -1018,7 +1104,7 @@ mod tests {
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    CRYPTDE_PAIR.main.as_ref(),
                     format!(
                         "masq://{}:VGVk@2.3.4.5:3456/4567",
                         DEFAULT_CHAIN.rec().literal_identifier
@@ -1140,7 +1226,7 @@ mod tests {
         running_test();
         let mut persistent_config = PersistentConfigurationMock::new()
             .check_password_result(Ok(false))
-            .past_neighbors_result(Err(PersistentConfigError::NotPresent));
+            .past_neighbors_result(Err(NotPresent));
         let mut unprivileged_config = BootstrapperConfig::new();
         unprivileged_config.db_password_opt = Some("password".to_string());
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1303,6 +1389,170 @@ mod tests {
     }
 
     #[test]
+    fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--fake-public-key",
+            "ABCDE",
+            "--neighbors",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
+        ]);
+        let public_key = PublicKey::new(b"ABCDE");
+        let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
+        let cryptde_traitified = &cryptde as &dyn CryptDE;
+
+        let result = convert_ci_configs(&multi_config);
+
+        assert_eq!(result, Ok(Some(
+            vec![
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504")).unwrap()])
+            )
+        )
+    }
+
+    #[test]
+    fn convert_ci_configs_does_not_like_neighbors_with_bad_syntax() {
+        running_test();
+        let multi_config = make_simplified_multi_config(["--neighbors", "ooga,booga"]);
+
+        let result = convert_ci_configs(&multi_config).err();
+
+        assert_eq!(
+            result,
+            Some(ConfiguratorError::new(vec![
+                ParamError::new(
+                    "neighbors",
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'ooga'"
+                ),
+                ParamError::new(
+                    "neighbors",
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'booga'"
+                ),
+            ]))
+        );
+    }
+
+    #[test]
+    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_mainnet_required() {
+        let descriptor = format!(
+            "masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+            DEFAULT_CHAIN.rec().literal_identifier
+        );
+        let multi_config = make_simplified_multi_config(["--neighbors", &descriptor]);
+
+        let result = convert_ci_configs(&multi_config);
+
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", &format!("Neighbors supplied without ip addresses and ports are not valid: '{}<N/A>:<N/A>",&descriptor[..descriptor.len()-1]))])));
+    }
+
+    #[test]
+    fn convert_ci_configs_complains_about_descriptor_without_node_address_when_test_chain_required()
+    {
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+        ]);
+
+        let result = convert_ci_configs(&multi_config);
+
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
+    }
+
+    #[test]
+    fn unprivileged_parse_args_without_blockchain_service_url_returns_error() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut config = BootstrapperConfig::new();
+        let mut persistent_config = configure_default_persistent_config(
+            RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
+        )
+        .set_past_neighbors_params(&set_past_neighbors_params_arc)
+        .set_past_neighbors_result(Ok(()));
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+        ]);
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+
+        let result = subject
+            .unprivileged_parse_args(
+                &multi_config,
+                &mut config,
+                &mut persistent_config,
+                &Logger::new("test"),
+            )
+            .unwrap_err();
+
+        let expected = MultiConfig::make_configurator_error(Error {
+            message: "The following required argument was not provided: --blockchain-service-url USAGE: --blockchain-service-url <blockchain-service-url>".to_string(),
+            kind: clap::ErrorKind::ArgumentNotFound,
+            info: Some(vec!["<blockchain-service-url>".to_string()]),
+        });
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn unprivileged_parse_args_does_not_require_blockchain_service_url_under_these_circumstances() {
+        running_test();
+        let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let config = BootstrapperConfig::new();
+        let persistent_config = configure_default_persistent_config(
+            RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
+        )
+        .set_past_neighbors_params(&set_past_neighbors_params_arc)
+        .set_past_neighbors_result(Ok(()));
+        let exception_params = vec![
+            ("--fake-public-key", "booga"),
+            ("--crash-point", "Error"),
+            ("--neighborhood-mode", "zero-hop"),
+        ];
+
+        for exception_param in exception_params {
+            create_and_assert_multiconfig(
+                config.clone(),
+                persistent_config.clone(),
+                exception_param,
+            );
+        }
+    }
+
+    fn create_and_assert_multiconfig(
+        mut config: BootstrapperConfig,
+        mut persistent_config: PersistentConfigurationMock,
+        exception_param: (&str, &str),
+    ) {
+        let subject = UnprivilegedParseArgsConfigurationDaoReal {};
+        let multi_config = make_simplified_multi_config([
+            "--chain",
+            "eth-ropsten",
+            "--neighbors",
+            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "--db-password",
+            "password",
+            exception_param.0,
+            exception_param.1,
+        ]);
+        let result = subject.unprivileged_parse_args(
+            &multi_config,
+            &mut config,
+            &mut persistent_config,
+            &Logger::new("test"),
+        );
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
     fn configure_zero_hop_with_neighbors_supplied() {
         running_test();
         let set_past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1341,7 +1591,7 @@ mod tests {
             *set_past_neighbors_params,
             vec![(
                 Some(vec![NodeDescriptor::try_from((
-                    main_cryptde(),
+                    CRYPTDE_PAIR.main.as_ref(),
                     "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345"
                 ))
                 .unwrap()]),
@@ -1387,7 +1637,7 @@ mod tests {
         let mut persistent_config = PersistentConfigurationMock::new();
         //no results prepared for set_past_neighbors() and no panic so it was not called
         let descriptor_list = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345",
         ))
         .unwrap()];
@@ -1407,11 +1657,10 @@ mod tests {
     #[test]
     fn configure_zero_hop_with_neighbors_but_setting_values_failed() {
         running_test();
-        let mut persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(
-            Err(PersistentConfigError::DatabaseError("Oh yeah".to_string())),
-        );
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .set_past_neighbors_result(Err(DatabaseError("Oh yeah".to_string())));
         let descriptor_list = vec![NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:UJNoZW5p+PDVqEjpr3b/8jZ/93yPG8i5dOAgE1bhK/A@2.3.4.5:2345",
         ))
         .unwrap()];
@@ -1536,7 +1785,7 @@ mod tests {
                 NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
                 vec![
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        CRYPTDE_PAIR.main.as_ref(),
                         format!(
                             "masq://{}:QmlsbA@1.2.3.4:1234/2345",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -1545,7 +1794,7 @@ mod tests {
                     ))
                     .unwrap(),
                     NodeDescriptor::try_from((
-                        main_cryptde(),
+                        CRYPTDE_PAIR.main.as_ref(),
                         format!(
                             "masq://{}:VGVk@2.3.4.5:3456/4567",
                             DEFAULT_CHAIN.rec().literal_identifier
@@ -1564,7 +1813,7 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_creates_configuration_with_defaults() {
         running_test();
-        let args = ArgsBuilder::new();
+        let args = ArgsBuilder::new().param("--blockchain-service-url", "booga.com");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1652,12 +1901,12 @@ mod tests {
             config.neighborhood_config.mode.neighbor_configs(),
             &[
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    CRYPTDE_PAIR.main.as_ref(),
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    CRYPTDE_PAIR.main.as_ref(),
                     "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
                 ))
                 .unwrap(),
@@ -1703,7 +1952,9 @@ mod tests {
     #[test]
     fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
         running_test();
-        let args = ArgsBuilder::new().param("--mapping-protocol", "pmp");
+        let args = ArgsBuilder::new()
+            .param("--mapping-protocol", "pmp")
+            .param("--blockchain-service-url", "booga.com");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -1741,6 +1992,7 @@ mod tests {
         );
 
         let args = ArgsBuilder::new()
+            .param("--blockchain-service-url", "booga.com")
             .param("--ip", "1.2.3.4")
             .param("--data-directory", home_directory.to_str().unwrap())
             .opt("--db-password");
@@ -1785,10 +2037,12 @@ mod tests {
         let set_scan_intervals_params_arc = Arc::new(Mutex::new(vec![]));
         let set_payment_thresholds_params_arc = Arc::new(Mutex::new(vec![]));
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|50|130",
             "--payment-thresholds",
             "100000|10000|1000|20000|1000|20000",
         ];
@@ -1797,8 +2051,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(100),
                     payable_scan_interval: Duration::from_secs(101),
+                    pending_payable_scan_interval: Duration::from_secs(33),
                     receivable_scan_interval: Duration::from_secs(102),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1825,8 +2079,8 @@ mod tests {
             .unwrap();
 
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(50),
             receivable_scan_interval: Duration::from_secs(130),
         };
         let expected_payment_thresholds = PaymentThresholds {
@@ -1842,13 +2096,13 @@ mod tests {
             Some(expected_payment_thresholds)
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
-        assert_eq!(config.suppress_initial_scans, false);
+        assert_eq!(config.automatic_scans_enabled, true);
         assert_eq!(
             config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
         );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
-        assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
+        assert_eq!(*set_scan_intervals_params, vec!["180|50|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
@@ -1861,10 +2115,12 @@ mod tests {
     ) {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--scan-intervals",
-            "180|150|130",
+            "180|15|130",
             "--payment-thresholds",
             "100000|1000|1000|20000|1000|20000",
         ];
@@ -1873,8 +2129,8 @@ mod tests {
         let mut persistent_configuration =
             configure_default_persistent_config(RATE_PACK | MAPPING_PROTOCOL)
                 .scan_intervals_result(Ok(ScanIntervals {
-                    pending_payable_scan_interval: Duration::from_secs(180),
-                    payable_scan_interval: Duration::from_secs(150),
+                    payable_scan_interval: Duration::from_secs(180),
+                    pending_payable_scan_interval: Duration::from_secs(15),
                     receivable_scan_interval: Duration::from_secs(130),
                 }))
                 .payment_thresholds_result(Ok(PaymentThresholds {
@@ -1905,11 +2161,11 @@ mod tests {
             unban_below_gwei: 20000,
         };
         let expected_scan_intervals = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(180),
-            payable_scan_interval: Duration::from_secs(150),
+            payable_scan_interval: Duration::from_secs(180),
+            pending_payable_scan_interval: Duration::from_secs(15),
             receivable_scan_interval: Duration::from_secs(130),
         };
-        let expected_suppress_initial_scans = false;
+        let expected_automatic_scans_enabled = true;
         let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         assert_eq!(
             config.payment_thresholds_opt,
@@ -1917,8 +2173,8 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(
-            config.suppress_initial_scans,
-            expected_suppress_initial_scans
+            config.automatic_scans_enabled,
+            expected_automatic_scans_enabled
         );
         assert_eq!(
             config.when_pending_too_long_sec,
@@ -1932,6 +2188,8 @@ mod tests {
         running_test();
         let set_rate_pack_params_arc = Arc::new(Mutex::new(vec![]));
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--neighborhood-mode",
@@ -1978,6 +2236,8 @@ mod tests {
     fn unprivileged_parse_args_rate_pack_with_values_from_cli_equal_to_database_standard_mode() {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--neighborhood-mode",
@@ -2023,6 +2283,8 @@ mod tests {
     ) {
         running_test();
         let args = [
+            "--blockchain-service-url",
+            "booga.com",
             "--ip",
             "1.2.3.4",
             "--chain",
@@ -2068,8 +2330,8 @@ mod tests {
     }
 
     #[test]
-    fn configure_accountant_config_discovers_invalid_payment_thresholds_params_combination_given_from_users_input(
-    ) {
+    fn configure_accountant_config_discovers_invalid_payment_thresholds_combination_in_users_input()
+    {
         let multi_config = make_simplified_multi_config([
             "--payment-thresholds",
             "19999|10000|1000|20000|1000|20000",
@@ -2085,7 +2347,8 @@ mod tests {
             &mut persistent_config,
         );
 
-        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than PermanentDebtAllowedGwei (20000)";
+        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than \
+        PermanentDebtAllowedGwei (20000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2096,14 +2359,15 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_works_for_equal_debt_parameters() {
+    fn validate_payment_thresholds_works_for_equal_debt_parameters() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 10000;
         payment_thresholds.debt_threshold_gwei = 10000;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
-        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than PermanentDebtAllowedGwei (10000)";
+        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than \
+        PermanentDebtAllowedGwei (10000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2114,14 +2378,15 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_works_for_too_small_debt_threshold() {
+    fn validate_payment_thresholds_works_for_too_small_debt_threshold() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 10000;
         payment_thresholds.debt_threshold_gwei = 9999;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
-        let expected_msg = "Value of DebtThresholdGwei (9999) must be bigger than PermanentDebtAllowedGwei (10000)";
+        let expected_msg = "Value of DebtThresholdGwei (9999) must be bigger than \
+        PermanentDebtAllowedGwei (10000) as the smallest value";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2132,7 +2397,8 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s() {
+    fn validate_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s()
+    {
         //this goes to the furthest extreme where the delta of debt limits is just 1 gwei, which,
         //if divided by the slope interval equal or longer 10^9 and rounded, gives 0
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
@@ -2140,7 +2406,7 @@ mod tests {
         payment_thresholds.debt_threshold_gwei = 101;
         payment_thresholds.threshold_interval_sec = 1_000_000_001;
 
-        let result = check_payment_thresholds(&payment_thresholds);
+        let result = validate_payment_thresholds(&payment_thresholds);
 
         let expected_msg = "Value of ThresholdIntervalSec must not exceed 1,000,000,000 s";
         assert_eq!(
@@ -2153,6 +2419,28 @@ mod tests {
         payment_thresholds.threshold_interval_sec -= 1;
         let last_value_possible = ThresholdUtils::slope(&payment_thresholds);
         assert_eq!(last_value_possible, -1)
+    }
+
+    #[test]
+    fn configure_accountant_config_discovers_invalid_scan_intervals_combination_in_users_input() {
+        let multi_config = make_simplified_multi_config(["--scan-intervals", "600|601|600"]);
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let mut persistent_config =
+            configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL)
+                .set_scan_intervals_result(Ok(()));
+
+        let result = configure_accountant_config(
+            &multi_config,
+            &mut bootstrapper_config,
+            &mut persistent_config,
+        );
+
+        let expected_msg = "The PendingPayableScanInterval value (601 s) must not exceed \
+        the PayableScanInterval value (600 s) and should ideally be approximately half of it";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required("scan-intervals", expected_msg))
+        )
     }
 
     #[test]
@@ -2224,8 +2512,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_present() {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2236,7 +2524,7 @@ mod tests {
         let multi_config = make_simplified_multi_config(["--rate-pack", "4|5|6|7"]);
         let mut persist_config = PersistentConfigurationMock::default()
             .rate_pack_result(Ok(RatePack::try_from("1|1|2|2").unwrap()))
-            .set_rate_pack_result(Err(PersistentConfigError::TransactionError));
+            .set_rate_pack_result(Err(TransactionError));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2245,8 +2533,8 @@ mod tests {
     #[should_panic(expected = "rate-pack: database query failed due to NotPresent")]
     fn process_combined_params_panics_on_persistent_config_getter_method_with_cli_absent() {
         let multi_config = make_simplified_multi_config([]);
-        let mut persist_config = PersistentConfigurationMock::default()
-            .rate_pack_result(Err(PersistentConfigError::NotPresent));
+        let mut persist_config =
+            PersistentConfigurationMock::default().rate_pack_result(Err(NotPresent));
 
         let _ = execute_process_combined_params_for_rate_pack(&multi_config, &mut persist_config);
     }
@@ -2271,7 +2559,7 @@ mod tests {
         let multi_config = make_simplified_multi_config([]);
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(None))
-            .consuming_wallet_private_key_result(Err(PersistentConfigError::NotPresent));
+            .consuming_wallet_private_key_result(Err(NotPresent));
         let mut config = BootstrapperConfig::new();
         config.db_password_opt = Some("password".to_string());
 
@@ -2279,7 +2567,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::NotPresent.into_configurator_error("consuming-private-key"))
+            Err(NotPresent.into_configurator_error("consuming-private-key"))
         );
     }
 
@@ -2409,6 +2697,76 @@ mod tests {
     }
 
     #[test]
+    fn configure_rate_pack_complains_when_minimums_are_transgressed() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .rate_pack_result(Ok(RatePack::new(0, 0, 0, 0)))
+            .set_rate_pack_result(Ok(()))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(5, 5, 5, 5),
+                RatePack::new(7, 7, 7, 7),
+            )));
+
+        let result = configure_rate_pack(
+            &make_simplified_multi_config(["--rate-pack", "4|4|4|4"]),
+            &mut persistent_config,
+        );
+
+        let expected_error = ConfiguratorError::new(vec![])
+            .another_required(
+                "rate-pack",
+                "Value of routing_byte_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of routing_service_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_byte_rate (4) is below the minimum allowed (5)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_service_rate (4) is below the minimum allowed (5)",
+            );
+        assert_eq!(result, Err(expected_error));
+    }
+
+    #[test]
+    fn configure_rate_pack_complains_when_maximums_are_transgressed() {
+        let mut persistent_config = PersistentConfigurationMock::new()
+            .rate_pack_result(Ok(RatePack::new(0, 0, 0, 0)))
+            .set_rate_pack_result(Ok(()))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(5, 5, 5, 5),
+                RatePack::new(7, 7, 7, 7),
+            )));
+
+        let result = configure_rate_pack(
+            &make_simplified_multi_config(["--rate-pack", "8|8|8|8"]),
+            &mut persistent_config,
+        );
+
+        let expected_error = ConfiguratorError::new(vec![])
+            .another_required(
+                "rate-pack",
+                "Value of routing_byte_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of routing_service_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_byte_rate (8) is above the maximum allowed (7)",
+            )
+            .another_required(
+                "rate-pack",
+                "Value of exit_service_rate (8) is above the maximum allowed (7)",
+            );
+        assert_eq!(result, Err(expected_error));
+    }
+
+    #[test]
     fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
         let multi_config = make_new_multi_config(
             &app_node(),
@@ -2488,8 +2846,8 @@ mod tests {
         init_test_logging();
         let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = configure_default_persistent_config(ZERO)
-            .mapping_protocol_result(Err(PersistentConfigError::NotPresent));
+        let mut persistent_config =
+            configure_default_persistent_config(ZERO).mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
@@ -2507,7 +2865,7 @@ mod tests {
         let logger = Logger::new("BAD_MP_WRITE");
         let mut persistent_config = configure_default_persistent_config(ZERO)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
-            .set_mapping_protocol_result(Err(PersistentConfigError::NotPresent));
+            .set_mapping_protocol_result(Err(NotPresent));
 
         let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
@@ -2541,7 +2899,14 @@ mod tests {
     fn unprivileged_configuration_handles_scans_off() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4", "--scans", "off"];
+        let args = [
+            "--blockchain-service-url",
+            "booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "off",
+        ];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject
@@ -2555,14 +2920,21 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, false);
     }
 
     #[test]
     fn unprivileged_configuration_handles_scans_on() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4", "--scans", "on"];
+        let args = [
+            "--blockchain-service-url",
+            "booga.com",
+            "--ip",
+            "1.2.3.4",
+            "--scans",
+            "on",
+        ];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject
@@ -2576,14 +2948,14 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     #[test]
     fn unprivileged_configuration_defaults_scans() {
         running_test();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
-        let args = ["--ip", "1.2.3.4"];
+        let args = ["--blockchain-service-url", "booga.com", "--ip", "1.2.3.4"];
         let mut bootstrapper_config = BootstrapperConfig::new();
 
         subject
@@ -2597,7 +2969,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
+        assert_eq!(bootstrapper_config.automatic_scans_enabled, true);
     }
 
     fn make_persistent_config(
@@ -2609,8 +2981,7 @@ mod tests {
         rate_pack_opt: Option<RatePack>,
         min_hops_opt: Option<Hops>,
     ) -> PersistentConfigurationMock {
-        let consuming_wallet_private_key_opt =
-            consuming_wallet_private_key_opt.map(|x| x.to_string());
+        let consuming_wallet_private_key_opt = consuming_wallet_private_key_opt.map(to_string);
         let earning_wallet_opt = match earning_wallet_address_opt {
             None => None,
             Some(address) => Some(Wallet::from_str(address).unwrap()),
@@ -2620,7 +2991,7 @@ mod tests {
             (Some(past_neighbors), Some(_)) => Ok(Some(
                 past_neighbors
                     .split(",")
-                    .map(|s| NodeDescriptor::try_from((main_cryptde(), s)).unwrap())
+                    .map(|s| NodeDescriptor::try_from((CRYPTDE_PAIR.main.as_ref(), s)).unwrap())
                     .collect::<Vec<NodeDescriptor>>(),
             )),
             _ => Ok(None),
@@ -2629,14 +3000,16 @@ mod tests {
         let min_hops = min_hops_opt.unwrap_or(MIN_HOPS_FOR_TEST);
         PersistentConfigurationMock::new()
             .consuming_wallet_private_key_result(Ok(consuming_wallet_private_key_opt))
-            .earning_wallet_address_result(
-                Ok(earning_wallet_address_opt.map(|ewa| ewa.to_string())),
-            )
+            .earning_wallet_address_result(Ok(earning_wallet_address_opt.map(to_string)))
             .earning_wallet_result(Ok(earning_wallet_opt))
             .gas_price_result(Ok(gas_price))
             .past_neighbors_result(past_neighbors_result)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .rate_pack_result(Ok(rate_pack))
+            .rate_pack_limits_result(Ok(RatePackLimits::new(
+                RatePack::new(u64::MIN, u64::MIN, u64::MIN, u64::MIN),
+                RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
+            )))
             .min_hops_result(Ok(min_hops))
     }
 }

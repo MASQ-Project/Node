@@ -17,10 +17,10 @@ pub struct StreamReaderReal {
     stream: Box<dyn ReadHalfWrapper>,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
-    reception_port: Option<u16>,
+    reception_port_opt: Option<u16>,
     ibcd_sub: Recipient<dispatcher::InboundClientData>,
     remove_sub: Recipient<RemoveStreamMsg>,
-    stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    dispatcher_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     discriminators: Vec<Discriminator>,
     is_clandestine: bool,
     logger: Logger,
@@ -91,10 +91,10 @@ impl StreamReaderReal {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         stream: Box<dyn ReadHalfWrapper>,
-        reception_port: Option<u16>,
+        reception_port_opt: Option<u16>,
         ibcd_sub: Recipient<dispatcher::InboundClientData>,
         remove_sub: Recipient<RemoveStreamMsg>,
-        stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+        dispatcher_sub: Recipient<StreamShutdownMsg>,
         discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
         is_clandestine: bool,
         peer_addr: SocketAddr,
@@ -112,10 +112,10 @@ impl StreamReaderReal {
             stream,
             local_addr,
             peer_addr,
-            reception_port,
+            reception_port_opt,
             ibcd_sub,
             remove_sub,
-            stream_shutdown_sub,
+            dispatcher_stream_shutdown_sub: dispatcher_sub,
             discriminators,
             is_clandestine,
             logger: Logger::new(&name),
@@ -192,7 +192,7 @@ impl StreamReaderReal {
                     // handshake and should start the sequence at Some(0) as well, the ProxyServer will
                     // handle the sequenced packet offset before sending them through the stream_writer
                     // and avoid dropping duplicate packets.
-                    let sequence_number = if unmasked_chunk.sequenced && !is_connect {
+                    let sequence_number_opt = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
                         // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
@@ -201,7 +201,7 @@ impl StreamReaderReal {
                     } else {
                         None
                     };
-                    match sequence_number {
+                    match sequence_number_opt {
                         Some(num) => debug!(
                             self.logger,
                             "Read {} bytes of clear data (#{})",
@@ -216,15 +216,15 @@ impl StreamReaderReal {
                     };
                     let msg = dispatcher::InboundClientData {
                         timestamp: SystemTime::now(),
-                        peer_addr: self.peer_addr,
-                        reception_port: self.reception_port,
+                        client_addr: self.peer_addr,
+                        reception_port_opt: self.reception_port_opt,
                         last_data: false,
                         is_clandestine: self.is_clandestine,
-                        sequence_number,
+                        sequence_number_opt,
                         data: unmasked_chunk.chunk.clone(),
                     };
                     debug!(self.logger, "Discriminator framed and unmasked {} bytes for {}; transmitting via Hopper",
-                                              unmasked_chunk.chunk.len(), msg.peer_addr);
+                                              unmasked_chunk.chunk.len(), msg.client_addr);
                     self.ibcd_sub.try_send(msg).expect("Dispatcher is dead");
                 }
                 None => {
@@ -236,7 +236,7 @@ impl StreamReaderReal {
     }
 
     fn shutdown(&mut self) {
-        debug!(self.logger, "Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port, self.local_addr, self.peer_addr);
+        debug!(self.logger, "Directing removal of {}clandestine StreamReader with reception_port {:?} on {} listening to {}", if self.is_clandestine {""} else {"non-"}, self.reception_port_opt, self.local_addr, self.peer_addr);
         self.remove_sub
             .try_send(RemoveStreamMsg {
                 peer_addr: self.peer_addr,
@@ -245,13 +245,13 @@ impl StreamReaderReal {
                     RemovedStreamType::Clandestine
                 } else {
                     RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                        reception_port: self.reception_port.expect(
+                        reception_port: self.reception_port_opt.expect(
                             "Non-clandestine StreamReader should always have a reception_port",
                         ),
                         sequence_number: self.sequencer.next_sequence_number(),
                     })
                 },
-                sub: self.stream_shutdown_sub.clone(),
+                dispatcher_sub: self.dispatcher_stream_shutdown_sub.clone(),
             })
             .expect("StreamHandlerPool is dead");
     }
@@ -268,11 +268,11 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
+    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from_recorder};
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
-    use crate::test_utils::recorder::make_dispatcher_subs_from;
+    use crate::test_utils::recorder::make_dispatcher_subs_from_recorder;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
@@ -292,13 +292,16 @@ mod tests {
 
     fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
         let (shp, _, recording) = make_recorder();
-        (recording, make_stream_handler_pool_subs_from(Some(shp)))
+        (
+            recording,
+            make_stream_handler_pool_subs_from_recorder(&shp.start()),
+        )
     }
 
     fn dispatcher_stuff() -> (Arc<Mutex<Recording>>, DispatcherSubs) {
         let (dispatcher, _, recording) = make_recorder();
         let addr: Addr<Recorder> = dispatcher.start();
-        (recording, make_dispatcher_subs_from(&addr))
+        (recording, make_dispatcher_subs_from_recorder(&addr))
     }
 
     #[actix::test]
@@ -335,7 +338,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -379,7 +382,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_subs.stream_shutdown_sub,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
 
@@ -490,11 +493,11 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr,
-                reception_port: Some(1234),
+                client_addr: peer_addr,
+                reception_port_opt: Some(1234),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -517,7 +520,8 @@ mod tests {
             Box::new(TlsDiscriminatorFactory::new()),
             Box::new(HttpRequestDiscriminatorFactory::new()),
         ];
-        let http_connect_request = Vec::from("CONNECT example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
+        let http_connect_request =
+            Vec::from("CONNECT www.example.com:443 HTTP/1.1\r\n\r\n".as_bytes());
         // Magic TLS Sauce stolen from Configuration
         let tls_request = Vec::from(&[0x16, 0x03, 0x01, 0x00, 0x03, 0x01, 0x02, 0x03][..]);
         let reader = ReadHalfWrapperMock::new()
@@ -545,13 +549,13 @@ mod tests {
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(0)
-                .sequence_number,
+                .sequence_number_opt,
         );
         assert_eq!(
             Some(0),
             d_recording
                 .get_record::<dispatcher::InboundClientData>(1)
-                .sequence_number,
+                .sequence_number_opt,
         );
     }
 
@@ -643,7 +647,7 @@ mod tests {
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(HttpRequestDiscriminatorFactory::new())];
         let request1 = Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes());
-        let request2 = Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes());
+        let request2 = Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes());
         let reader = ReadHalfWrapperMock::new()
             .read_ok(request1.as_slice())
             .read_final(request2.as_slice());
@@ -677,7 +681,7 @@ mod tests {
                 reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
@@ -692,8 +696,8 @@ mod tests {
                 reception_port: Some(1234),
                 last_data: false,
                 is_clandestine: false,
-                sequence_number: Some(1),
-                data: Vec::from("GET http://example.com HTTP/1.1\r\n\r\n".as_bytes()),
+                sequence_number_opt: Some(1),
+                data: Vec::from("GET http://www.example.com HTTP/1.1\r\n\r\n".as_bytes()),
             }
         );
     }
@@ -703,7 +707,7 @@ mod tests {
     ) {
         let (_, stream_handler_pool_subs) = stream_handler_pool_stuff();
         let (d_recording_arc, dispatcher_subs) = dispatcher_stuff();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
         let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
             vec![Box::new(JsonDiscriminatorFactory::new())];
@@ -723,7 +727,7 @@ mod tests {
             dispatcher_subs.stream_shutdown_sub,
             discriminator_factories,
             true,
-            peer_addr,
+            client_addr,
             local_addr,
         );
         let before = SystemTime::now();
@@ -740,12 +744,94 @@ mod tests {
             d_record,
             &dispatcher::InboundClientData {
                 timestamp: d_record.timestamp,
-                peer_addr,
-                reception_port: Some(1234),
+                client_addr,
+                reception_port_opt: Some(1234),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: Vec::from("GET http://here.com HTTP/1.1\r\n\r\n".as_bytes()),
+            }
+        );
+    }
+
+    #[test]
+    fn shutdown_produces_the_correct_stream_shutdown_msg_for_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let system = System::new("test");
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            None,
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            true,
+            peer_addr,
+            local_addr,
+        );
+
+        subject.shutdown();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                peer_addr,
+                local_addr,
+                stream_type: RemovedStreamType::Clandestine,
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
+            }
+        );
+    }
+
+    #[test]
+    fn shutdown_produces_the_correct_stream_shutdown_msg_for_non_clandestine_reader() {
+        let (shp_recording_arc, stream_handler_pool_subs) = stream_handler_pool_stuff();
+        let (_, dispatcher_subs) = dispatcher_stuff();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let system = System::new("test");
+        let local_addr = SocketAddr::from_str("1.2.3.5:6789").unwrap();
+        let discriminator_factories: Vec<Box<dyn DiscriminatorFactory>> =
+            vec![Box::new(JsonDiscriminatorFactory::new())];
+        let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::Ready(0)));
+        let mut subject = StreamReaderReal::new(
+            Box::new(reader),
+            Some(HTTP_PORT),
+            dispatcher_subs.ibcd_sub,
+            stream_handler_pool_subs.remove_sub,
+            dispatcher_subs.stream_shutdown_sub.clone(),
+            discriminator_factories,
+            false,
+            peer_addr,
+            local_addr,
+        );
+        subject.sequencer.next_sequence_number(); // just so it's not 0
+
+        subject.shutdown();
+
+        System::current().stop_with_code(0);
+        system.run();
+        let shp_recording = shp_recording_arc.lock().unwrap();
+        let remove_stream_msg = shp_recording.get_record::<RemoveStreamMsg>(0);
+        assert_eq!(
+            remove_stream_msg,
+            &RemoveStreamMsg {
+                peer_addr,
+                local_addr,
+                stream_type: NonClandestine(NonClandestineAttributes {
+                    reception_port: HTTP_PORT,
+                    sequence_number: 1,
+                }),
+                dispatcher_sub: dispatcher_subs.stream_shutdown_sub,
             }
         );
     }

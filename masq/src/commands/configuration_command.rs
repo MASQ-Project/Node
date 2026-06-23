@@ -13,11 +13,13 @@ use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 #[cfg(test)]
 use std::any::Any;
+use masq_lib::short_writeln;
+use masq_lib::utils::to_string;
 use std::fmt::{Debug, Display};
 use thousands::Separable;
 
@@ -73,7 +75,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl ConfigurationCommand {
@@ -86,7 +88,7 @@ impl ConfigurationCommand {
         Ok(ConfigurationCommand {
             db_password: matches
                 .get_one::<String>("db-password")
-                .map(|s| s.to_string()),
+                .map(to_string),
         })
     }
 
@@ -454,6 +456,7 @@ mod tests {
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
             neighborhood_mode: "standard".to_string(),
+            max_block_count_opt: None,
             consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
             consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
@@ -473,7 +476,7 @@ mod tests {
                 exit_byte_rate: 129000000,
                 exit_service_rate: 160000000,
             },
-            start_block: 3456,
+            start_block_opt: None,
             scan_intervals: UiScanIntervals {
                 pending_payable_sec: 150500,
                 payable_sec: 155000,
@@ -520,9 +523,10 @@ mod tests {
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
+|Max block count:                  [Unlimited]\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
+|Start block:                      [Latest]\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 |Payment thresholds:               \n\
@@ -538,8 +542,8 @@ mod tests {
 |                                  Exit byte rate:                   129,000,000 wei\n\
 |                                  Exit service rate:                160,000,000 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  150,500 s\n\
 |                                  Payable:                          155,000 s\n\
+|                                  Pending payable:                  150,500 s\n\
 |                                  Receivable:                       250,666 s\n"
             )
             .replace('|', "")
@@ -554,8 +558,9 @@ mod tests {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
-            chain_name: "mumbai".to_string(),
+            chain_name: "amoy".to_string(),
             gas_price: 2345,
+            max_block_count_opt: Some(100_000),
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_address_opt: None,
             consuming_wallet_private_key_opt: None,
@@ -576,7 +581,7 @@ mod tests {
                 exit_byte_rate: 20,
                 exit_service_rate: 30,
             },
-            start_block: 3456,
+            start_block_opt: Some(1234567890u64),
             scan_intervals: UiScanIntervals {
                 pending_payable_sec: 1000,
                 payable_sec: 1000,
@@ -615,15 +620,16 @@ mod tests {
                 "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            mumbai\n\
+|Chain:                            amoy\n\
 |Clandestine port:                 1234\n\
 |Consuming wallet private key:     [?]\n\
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning wallet\n\
 |Gas price:                        2345\n\
+|Max block count:                  100,000\n\
 |Neighborhood mode:                zero-hop\n\
 |Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
+|Start block:                      1,234,567,890\n\
 |Past neighbors:                   [?]\n\
 |Payment thresholds:               \n\
 |                                  Debt threshold:                   2,500 gwei\n\
@@ -638,8 +644,8 @@ mod tests {
 |                                  Exit byte rate:                   20 wei\n\
 |                                  Exit service rate:                30 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  1,000 s\n\
 |                                  Payable:                          1,000 s\n\
+|                                  Pending payable:                  1,000 s\n\
 |                                  Receivable:                       1,000 s\n",
             )
             .replace('|', "")

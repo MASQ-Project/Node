@@ -1,0 +1,235 @@
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
+use crate::accountant::join_with_separator;
+use itertools::Either;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use variant_count::VariantCount;
+use web3::types::Address;
+
+const BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED: &str = "Uninitialized blockchain interface. To avoid \
+being delinquency-banned, you should restart the Node with a value for blockchain-service-url";
+
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
+pub enum BlockchainInterfaceError {
+    InvalidUrl,
+    InvalidAddress,
+    InvalidResponse,
+    QueryFailed(String),
+    UninitializedInterface,
+}
+
+impl Display for BlockchainInterfaceError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let err_spec = match self {
+            Self::InvalidUrl => Either::Left("Invalid url"),
+            Self::InvalidAddress => Either::Left("Invalid address"),
+            Self::InvalidResponse => Either::Left("Invalid response"),
+            Self::QueryFailed(msg) => Either::Right(format!("Query failed: {}", msg)),
+            Self::UninitializedInterface => Either::Left(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED),
+        };
+        write!(f, "Blockchain error: {}", err_spec)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
+pub enum LocalPayableError {
+    MissingConsumingWallet,
+    GasPriceQueryFailed(BlockchainInterfaceError),
+    TransactionID(BlockchainInterfaceError),
+    Sending {
+        error: String,
+        failed_txs: Vec<FailedTx>,
+    },
+    UninitializedInterface,
+}
+
+impl Display for LocalPayableError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingConsumingWallet => {
+                write!(f, "Missing consuming wallet to pay payable from")
+            }
+            Self::GasPriceQueryFailed(msg) => {
+                write!(f, "Unsuccessful gas price query: \"{}\"", msg)
+            }
+            Self::TransactionID(blockchain_err) => {
+                write!(f, "Transaction id fetching failed: {}", blockchain_err)
+            }
+            Self::Sending { error, failed_txs } => write!(
+                f,
+                "Sending error: \"{}\". Signed and hashed transactions: \"{}\"",
+                error,
+                join_with_separator(failed_txs, |failed_tx| format!("{:?}", failed_tx), ",")
+            ),
+            Self::UninitializedInterface => {
+                write!(f, "{}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, VariantCount)]
+pub enum BlockchainAgentBuildError {
+    GasPrice(BlockchainInterfaceError),
+    TransactionFeeBalance(Address, BlockchainInterfaceError),
+    ServiceFeeBalance(Address, BlockchainInterfaceError),
+    UninitializedInterface,
+}
+
+impl Display for BlockchainAgentBuildError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let preformatted_or_complete = match self {
+            Self::GasPrice(blockchain_e) => {
+                Either::Left(format!("gas price due to: {:?}", blockchain_e))
+            }
+            Self::TransactionFeeBalance(address, blockchain_e) => Either::Left(format!(
+                "transaction fee balance for our earning wallet {:#x} due to: {}",
+                address, blockchain_e
+            )),
+            Self::ServiceFeeBalance(address, blockchain_e) => Either::Left(format!(
+                "masq balance for our earning wallet {:#x} due to {}",
+                address, blockchain_e
+            )),
+            Self::UninitializedInterface => {
+                Either::Right(BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED.to_string())
+            }
+        };
+
+        match preformatted_or_complete {
+            Either::Left(ending) => write!(
+                f,
+                "Blockchain agent construction failed at fetching {}",
+                ending
+            ),
+            Either::Right(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::accountant::db_access_objects::test_utils::make_failed_tx;
+    use crate::blockchain::blockchain_interface::data_structures::errors::{
+        LocalPayableError, BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+    };
+    use crate::blockchain::blockchain_interface::{
+        BlockchainAgentBuildError, BlockchainInterfaceError,
+    };
+    use crate::test_utils::make_wallet;
+    use masq_lib::utils::{slice_of_strs_to_vec_of_strings, to_string};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED,
+            "Uninitialized blockchain interface. To avoid being delinquency-banned, you should \
+            restart the Node with a value for blockchain-service-url"
+        )
+    }
+
+    #[test]
+    fn blockchain_error_implements_display() {
+        let original_errors = [
+            BlockchainInterfaceError::InvalidUrl,
+            BlockchainInterfaceError::InvalidAddress,
+            BlockchainInterfaceError::InvalidResponse,
+            BlockchainInterfaceError::QueryFailed(
+                "Don't query so often, it gives me a headache".to_string(),
+            ),
+            BlockchainInterfaceError::UninitializedInterface,
+        ];
+
+        let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
+
+        assert_eq!(
+            original_errors.len(),
+            BlockchainInterfaceError::VARIANT_COUNT,
+            "you forgot to add all variants in this test"
+        );
+        assert_eq!(
+            actual_error_msgs,
+            slice_of_strs_to_vec_of_strings(&[
+                "Blockchain error: Invalid url",
+                "Blockchain error: Invalid address",
+                "Blockchain error: Invalid response",
+                "Blockchain error: Query failed: Don't query so often, it gives me a headache",
+                &format!("Blockchain error: {}", BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED)
+            ])
+        );
+    }
+
+    #[test]
+    fn payable_payment_error_implements_display() {
+        let original_errors = [
+            LocalPayableError::MissingConsumingWallet,
+            LocalPayableError::GasPriceQueryFailed(BlockchainInterfaceError::QueryFailed(
+                "Gas halves shut, no drop left".to_string(),
+            )),
+            LocalPayableError::TransactionID(BlockchainInterfaceError::InvalidResponse),
+            LocalPayableError::Sending {
+                error: "Terrible error!!".to_string(),
+                failed_txs: vec![make_failed_tx(456)],
+            },
+            LocalPayableError::UninitializedInterface,
+        ];
+
+        let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
+
+        assert_eq!(
+            original_errors.len(),
+            LocalPayableError::VARIANT_COUNT,
+            "you forgot to add all variants in this test"
+        );
+        assert_eq!(
+            actual_error_msgs,
+            slice_of_strs_to_vec_of_strings(&[
+                "Missing consuming wallet to pay payable from",
+                "Unsuccessful gas price query: \"Blockchain error: Query failed: Gas halves shut, no drop left\"",
+                "Transaction id fetching failed: Blockchain error: Invalid response",
+                "Sending error: \"Terrible error!!\". Signed and hashed transactions: \"FailedTx { hash: 0x00000000000000\
+                000000000000000000000000000000000000000000000001c8, receiver_address: 0x00000000000\
+                00000002556000000002556000000, amount_minor: 43237380096, timestamp: 29942784, gas_\
+                price_minor: 94818816, nonce: 456, reason: PendingTooLong, status: RetryRequired }\"",
+                BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
+            ])
+        )
+    }
+
+    #[test]
+    fn blockchain_agent_build_error_implements_display() {
+        let wallet = make_wallet("abc");
+        let original_errors = [
+            BlockchainAgentBuildError::GasPrice(BlockchainInterfaceError::InvalidResponse),
+            BlockchainAgentBuildError::TransactionFeeBalance(
+                wallet.address(),
+                BlockchainInterfaceError::InvalidResponse,
+            ),
+            BlockchainAgentBuildError::ServiceFeeBalance(
+                wallet.address(),
+                BlockchainInterfaceError::InvalidAddress,
+            ),
+            BlockchainAgentBuildError::UninitializedInterface,
+        ];
+
+        let actual_error_msgs = original_errors.iter().map(to_string).collect::<Vec<_>>();
+
+        assert_eq!(
+            original_errors.len(),
+            BlockchainAgentBuildError::VARIANT_COUNT,
+            "you forgot to add all variants in this test"
+        );
+        assert_eq!(
+            actual_error_msgs,
+            slice_of_strs_to_vec_of_strings(&[
+                "Blockchain agent construction failed at fetching gas price due to: InvalidResponse",
+                "Blockchain agent construction failed at fetching transaction fee balance for our earning \
+                wallet 0x0000000000000000000000000000000000616263 due to: Blockchain error: Invalid response",
+                "Blockchain agent construction failed at fetching masq balance for our earning wallet \
+                0x0000000000000000000000000000000000616263 due to Blockchain error: Invalid address",
+                BLOCKCHAIN_SERVICE_URL_NOT_SPECIFIED
+            ])
+        )
+    }
+}

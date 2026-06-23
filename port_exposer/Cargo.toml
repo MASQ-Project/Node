@@ -1,6 +1,6 @@
 [package]
 name = "port_exposer"
-version = "0.7.3"
+version = "0.9.1"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = "Does port-forwarding from meta-address 0.0.0.0 to the loopback interface"

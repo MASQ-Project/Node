@@ -1,11 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
 
 use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::accountant;
+use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
+use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_LIMITS};
 use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
@@ -131,15 +132,16 @@ impl DbInitializerReal {
     }
 
     fn create_database_tables(&self, conn: &Connection, external_params: ExternalData) {
-        self.create_config_table(conn);
-        self.initialize_config(conn, external_params);
-        self.create_payable_table(conn);
-        self.create_pending_payable_table(conn);
-        self.create_receivable_table(conn);
-        self.create_banned_table(conn);
+        Self::create_config_table(conn);
+        Self::initialize_config(conn, external_params);
+        Self::create_payable_table(conn);
+        Self::create_sent_payable_table(conn);
+        Self::create_failed_payable_table(conn);
+        Self::create_receivable_table(conn);
+        Self::create_banned_table(conn);
     }
 
-    fn create_config_table(&self, conn: &Connection) {
+    pub fn create_config_table(conn: &Connection) {
         conn.execute(
             "create table if not exists config (
                     name text primary key,
@@ -150,7 +152,8 @@ impl DbInitializerReal {
         )
         .expect("Can't create config table");
     }
-    fn initialize_config(&self, conn: &Connection, external_params: ExternalData) {
+
+    fn initialize_config(conn: &Connection, external_params: ExternalData) {
         Self::set_config_value(conn, EXAMPLE_ENCRYPTED, None, true, "example_encrypted");
         Self::set_config_value(
             conn,
@@ -204,13 +207,7 @@ impl DbInitializerReal {
         Self::set_config_value(
             conn,
             "start_block",
-            Some(
-                &external_params
-                    .chain
-                    .rec()
-                    .contract_creation_block
-                    .to_string(),
-            ),
+            None,
             false,
             &format!(
                 "{} start block",
@@ -223,6 +220,13 @@ impl DbInitializerReal {
             Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
             "gas price",
+        );
+        Self::set_config_value(
+            conn,
+            "last_cryptde",
+            None,
+            true,
+            "CryptDE that gave us the public key we used last time",
         );
         Self::set_config_value(conn, "past_neighbors", None, true, "past neighbors");
         Self::set_config_value(
@@ -255,35 +259,77 @@ impl DbInitializerReal {
         );
         Self::set_config_value(
             conn,
+            "rate_pack_limits",
+            Some(
+                DEFAULT_RATE_PACK_LIMITS
+                    .rate_pack_limits_parameter()
+                    .as_str(),
+            ),
+            false,
+            "rate pack limits",
+        );
+        Self::set_config_value(
+            conn,
             "scan_intervals",
-            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            Some(&accountant::ScanIntervals::compute_default(external_params.chain).to_string()),
             false,
             "scan intervals",
         );
+        Self::set_config_value(conn, "max_block_count", None, false, "maximum block count");
     }
 
-    fn create_pending_payable_table(&self, conn: &Connection) {
+    pub fn create_sent_payable_table(conn: &Connection) {
         conn.execute(
-            "create table if not exists pending_payable (
-                    rowid integer primary key,
-                    transaction_hash text not null,
-                    amount_high_b integer not null,
-                    amount_low_b integer not null,
-                    payable_timestamp integer not null,
-                    attempt integer not null,
-                    process_error text null
+            "create table if not exists sent_payable (
+                rowid integer primary key,
+                tx_hash text not null,
+                receiver_address text not null,
+                amount_high_b integer not null,
+                amount_low_b integer not null,
+                timestamp integer not null,
+                gas_price_wei_high_b integer not null,
+                gas_price_wei_low_b integer not null,
+                nonce integer not null,
+                status text not null
             )",
             [],
         )
-        .expect("Can't create pending_payable table");
+        .expect("Can't create sent_payable table");
+
         conn.execute(
-            "CREATE UNIQUE INDEX pending_payable_hash_idx ON pending_payable (transaction_hash)",
+            "CREATE UNIQUE INDEX sent_payable_tx_hash_idx ON sent_payable (tx_hash)",
             [],
         )
-        .expect("Can't create transaction hash index in pending payments");
+        .expect("Can't create transaction hash index in sent payments");
     }
 
-    fn create_payable_table(&self, conn: &Connection) {
+    pub fn create_failed_payable_table(conn: &Connection) {
+        conn.execute(
+            "create table if not exists failed_payable (
+                rowid integer primary key,
+                tx_hash text not null,
+                receiver_address text not null,
+                amount_high_b integer not null,
+                amount_low_b integer not null,
+                timestamp integer not null,
+                gas_price_wei_high_b integer not null,
+                gas_price_wei_low_b integer not null,
+                nonce integer not null,
+                reason text not null,
+                status text not null
+            )",
+            [],
+        )
+        .expect("Can't create failed_payable table");
+
+        conn.execute(
+            "CREATE UNIQUE INDEX failed_payable_tx_hash_idx ON sent_payable (tx_hash)",
+            [],
+        )
+        .expect("Can't create transaction hash index in failed payments");
+    }
+
+    pub fn create_payable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists payable (
                     wallet_address text primary key,
@@ -297,7 +343,7 @@ impl DbInitializerReal {
         .expect("Can't create payable table");
     }
 
-    fn create_receivable_table(&self, conn: &Connection) {
+    pub fn create_receivable_table(conn: &Connection) {
         conn.execute(
             "create table if not exists receivable (
                     wallet_address text primary key,
@@ -310,7 +356,7 @@ impl DbInitializerReal {
         .expect("Can't create receivable table");
     }
 
-    fn create_banned_table(&self, conn: &Connection) {
+    pub fn create_banned_table(conn: &Connection) {
         conn.execute(
             "create table banned ( wallet_address text primary key )",
             [],
@@ -731,6 +777,9 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
+    use crate::database::test_utils::{
+        SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE, SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+    };
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
@@ -750,6 +799,7 @@ mod tests {
     use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Error, OpenFlags};
     use std::collections::HashMap;
+    use std::collections::HashSet;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
@@ -761,7 +811,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
-        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
     }
 
     #[test]
@@ -779,7 +829,7 @@ mod tests {
         let mut stmt = conn
             .prepare("select name, value, encrypted from config")
             .unwrap();
-        let _ = stmt.query_map([], |_| Ok(42)).unwrap();
+        let _ = stmt.execute([]);
         let expected_key_words: &[&[&str]] = &[
             &["name", "text", "primary", "key"],
             &["value", "text"],
@@ -790,34 +840,84 @@ mod tests {
     }
 
     #[test]
-    fn db_initialize_creates_pending_payable_table() {
+    fn db_initialize_creates_sent_payable_table() {
         let home_dir = ensure_node_home_directory_does_not_exist(
             "db_initializer",
-            "db_initialize_creates_pending_payable_table",
+            "db_initialize_creates_sent_payable_table",
         );
         let subject = DbInitializerReal::default();
 
         let conn = subject
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-
-        let mut stmt = conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error from pending_payable").unwrap();
-        let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
-        assert!(payable_contents.next().is_none());
-        let expected_key_words: &[&[&str]] = &[
-            &["rowid", "integer", "primary", "key"],
-            &["transaction_hash", "text", "not", "null"],
-            &["amount_high_b", "integer", "not", "null"],
-            &["amount_low_b", "integer", "not", "null"],
-            &["payable_timestamp", "integer", "not", "null"],
-            &["attempt", "integer", "not", "null"],
-            &["process_error", "text", "null"],
-        ];
-        assert_create_table_stm_contains_all_parts(&*conn, "pending_payable", expected_key_words);
-        let expected_key_words: &[&[&str]] = &[&["transaction_hash"]];
+        let mut stmt = conn
+            .prepare(
+                "SELECT rowid,
+                        tx_hash,
+                        receiver_address,
+                        amount_high_b,
+                        amount_low_b,
+                        timestamp,
+                        gas_price_wei_high_b,
+                        gas_price_wei_low_b,
+                        nonce,
+                        status
+                        FROM sent_payable",
+            )
+            .unwrap();
+        let result = stmt.execute([]).unwrap();
+        assert_eq!(result, 1);
+        assert_create_table_stm_contains_all_parts(
+            &*conn,
+            "sent_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_SENT_PAYABLE,
+        );
+        let expected_key_words: &[&[&str]] = &[&["tx_hash"]];
         assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),
-            "pending_payable_hash_idx",
+            "sent_payable_tx_hash_idx",
+            expected_key_words,
+        )
+    }
+
+    #[test]
+    fn db_initialize_creates_failed_payable_table() {
+        let home_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_creates_failed_payable_table",
+        );
+        let subject = DbInitializerReal::default();
+
+        let conn = subject
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT rowid,
+                        tx_hash,
+                        receiver_address,
+                        amount_high_b,
+                        amount_low_b,
+                        timestamp,
+                        gas_price_wei_high_b,
+                        gas_price_wei_low_b,
+                        nonce,
+                        reason,
+                        status
+                 FROM failed_payable",
+            )
+            .unwrap();
+        let result = stmt.execute([]).unwrap();
+        assert_eq!(result, 1);
+        assert_create_table_stm_contains_all_parts(
+            &*conn,
+            "failed_payable",
+            SQL_ATTRIBUTES_FOR_CREATING_FAILED_PAYABLE,
+        );
+        let expected_key_words: &[&[&str]] = &[&["tx_hash"]];
+        assert_index_stm_is_coupled_with_right_parameter(
+            conn.as_ref(),
+            "failed_payable_tx_hash_idx",
             expected_key_words,
         )
     }
@@ -834,9 +934,18 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare ("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
-        let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
-        assert!(payable_contents.next().is_none());
+        let mut stmt = conn
+            .prepare(
+                "SELECT wallet_address,
+                        balance_high_b,
+                        balance_low_b,
+                        last_paid_timestamp,
+                        pending_payable_rowid
+                 FROM payable",
+            )
+            .unwrap();
+        let result = stmt.execute([]).unwrap();
+        assert_eq!(result, 1);
         assert_table_created_as_strict(&*conn, "payable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
@@ -862,10 +971,16 @@ mod tests {
             .unwrap();
 
         let mut stmt = conn
-            .prepare("select wallet_address, balance_high_b, balance_low_b, last_received_timestamp from receivable")
+            .prepare(
+                "SELECT wallet_address,
+                        balance_high_b,
+                        balance_low_b,
+                        last_received_timestamp
+                 FROM receivable",
+            )
             .unwrap();
-        let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
-        assert!(receivable_contents.next().is_none());
+        let result = stmt.execute([]).unwrap();
+        assert_eq!(result, 1);
         assert_table_created_as_strict(&*conn, "receivable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
@@ -891,8 +1006,8 @@ mod tests {
             .unwrap();
 
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
-        let mut banned_contents = stmt.query_map([], |_| Ok(42)).unwrap();
-        assert!(banned_contents.next().is_none());
+        let result = stmt.execute([]).unwrap();
+        assert_eq!(result, 1);
         let expected_key_words: &[&[&str]] = &[&["wallet_address", "text", "primary", "key"]];
         assert_create_table_stm_contains_all_parts(conn.as_ref(), "banned", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "banned")
@@ -1035,7 +1150,9 @@ mod tests {
             Some(&DEFAULT_GAS_PRICE.to_string()),
             false,
         );
+        verify(&mut config_vec, "last_cryptde", None, true);
         verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "max_block_count", None, false);
         verify(&mut config_vec, "min_hops", Some("3"), false);
         verify(
             &mut config_vec,
@@ -1059,8 +1176,18 @@ mod tests {
         );
         verify(
             &mut config_vec,
+            "rate_pack_limits",
+            Some(
+                DEFAULT_RATE_PACK_LIMITS
+                    .rate_pack_limits_parameter()
+                    .as_str(),
+            ),
+            false,
+        );
+        verify(
+            &mut config_vec,
             "scan_intervals",
-            Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+            Some(&accountant::ScanIntervals::compute_default(TEST_DEFAULT_CHAIN).to_string()),
             false,
         );
         verify(
@@ -1069,15 +1196,130 @@ mod tests {
             Some(&CURRENT_SCHEMA_VERSION.to_string()),
             false,
         );
+        verify(&mut config_vec, "start_block", None, false);
+        assert_eq!(config_vec, vec![]);
+    }
+
+    #[test]
+    fn new_database_is_initialized_correctly() {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "new_database_is_initialized_correctly",
+        );
+        let subject = DbInitializerReal::default();
+
+        subject
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        let table_names = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect::<HashSet<String>>();
+        assert_eq!(
+            table_names,
+            HashSet::from([
+                "config".to_string(),
+                "payable".to_string(),
+                "receivable".to_string(),
+                "sent_payable".to_string(),
+                "banned".to_string(),
+                "failed_payable".to_string()
+            ]),
+        );
+        let config_map = extract_configurations(&conn);
+        let mut config_vec: Vec<(String, (Option<String>, bool))> =
+            config_map.into_iter().collect();
+        config_vec.sort_by_key(|(name, _)| name.clone());
+        let verify = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                      name: &str,
+                      value: Option<&str>,
+                      encrypted: bool| {
+            let actual = cv.remove(0);
+            let expected = (name.to_string(), (value.map(|v| v.to_string()), encrypted));
+            assert_eq!(actual, expected)
+        };
+        let verify_but_value = |cv: &mut Vec<(String, (Option<String>, bool))>,
+                                expected_name: &str,
+                                expected_encrypted: bool| {
+            let (actual_name, (value, actual_encrypted)) = cv.remove(0);
+            assert_eq!(actual_name, expected_name);
+            assert_eq!(actual_encrypted, expected_encrypted);
+            value
+        };
+        verify(&mut config_vec, "blockchain_service_url", None, false);
         verify(
             &mut config_vec,
-            "start_block",
-            Some(&format!(
-                "{}",
-                &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string()
-            )),
+            "chain_name",
+            Some(TEST_DEFAULT_CHAIN.rec().literal_identifier),
             false,
         );
+        let clandestine_port_str_opt = verify_but_value(&mut config_vec, "clandestine_port", false);
+        let clandestine_port: u16 = clandestine_port_str_opt.unwrap().parse().unwrap();
+        assert!(clandestine_port >= 1025);
+        assert!(clandestine_port < 10000);
+        verify(&mut config_vec, "consuming_wallet_private_key", None, true);
+        verify(&mut config_vec, "earning_wallet_address", None, false);
+        verify(&mut config_vec, EXAMPLE_ENCRYPTED, None, true);
+        verify(
+            &mut config_vec,
+            "gas_price",
+            Some(&DEFAULT_GAS_PRICE.to_string()),
+            false,
+        );
+        verify(&mut config_vec, "last_cryptde", None, true);
+        verify(&mut config_vec, "mapping_protocol", None, false);
+        verify(&mut config_vec, "max_block_count", None, false);
+        verify(&mut config_vec, "min_hops", Some("3"), false);
+        verify(
+            &mut config_vec,
+            "neighborhood_mode",
+            Some("standard"),
+            false,
+        );
+        verify(&mut config_vec, "past_neighbors", None, true);
+        verify(
+            &mut config_vec,
+            "payment_thresholds",
+            Some(&DEFAULT_PAYMENT_THRESHOLDS.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "rate_pack",
+            Some(&DEFAULT_RATE_PACK.to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "rate_pack_limits",
+            Some(
+                DEFAULT_RATE_PACK_LIMITS
+                    .rate_pack_limits_parameter()
+                    .as_str(),
+            ),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "scan_intervals",
+            Some(&accountant::ScanIntervals::compute_default(TEST_DEFAULT_CHAIN).to_string()),
+            false,
+        );
+        verify(
+            &mut config_vec,
+            "schema_version",
+            Some(&CURRENT_SCHEMA_VERSION.to_string()),
+            false,
+        );
+        verify(&mut config_vec, "start_block", None, false);
         assert_eq!(config_vec, vec![]);
     }
 
@@ -1284,7 +1526,7 @@ mod tests {
             .initialize(
                 &updated_db_path_dir,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::BaseSepolia,
                     NeighborhoodMode::Standard,
                     Some("password".to_string()),
                 )),
@@ -1590,7 +1832,7 @@ mod tests {
         assert!(
             config_one_debug.contains(
                     "DbInitializationConfig{init_config: CreationAndMigration { external_data: \
-                     ExternalData { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: \
+                     ExternalData { chain: BaseMainnet, neighborhood_mode: Standard, db_password_opt: \
                       None } }, special_conn_setup: Addresses["
                 ),
             "instead, the first printed message contained: {}",

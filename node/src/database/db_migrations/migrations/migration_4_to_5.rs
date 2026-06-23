@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 
@@ -76,11 +76,11 @@ impl DatabaseMigration for Migrate_4_to_5 {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, to_time_t};
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::accountant::db_access_objects::utils::{from_unix_timestamp, to_unix_timestamp};
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
     };
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
@@ -124,7 +124,7 @@ mod tests {
             None,
             &wallet_1,
             113344,
-            from_time_t(250_000_000),
+            from_unix_timestamp(250_000_000),
         );
         let config_table_before = fetch_all_from_config_table(conn.as_ref());
 
@@ -150,7 +150,7 @@ mod tests {
         conn: &dyn ConnectionWrapper,
         transaction_hash_opt: Option<H256>,
         wallet: &Wallet,
-        amount: i64,
+        amount_minor: i64,
         timestamp: SystemTime,
     ) {
         let hash_str = transaction_hash_opt
@@ -159,8 +159,8 @@ mod tests {
         let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payment_transaction) values (?,?,?,?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &wallet,
-            &amount,
-            &to_time_t(timestamp),
+            &amount_minor,
+            &to_unix_timestamp(timestamp),
             if !hash_str.is_empty() {
                 &hash_str
             } else {
@@ -208,7 +208,7 @@ mod tests {
             Some(transaction_hash_2),
             &wallet_2,
             1111111,
-            from_time_t(200_000_000),
+            from_unix_timestamp(200_000_000),
         );
         let config_table_before = fetch_all_from_config_table(&conn);
 
@@ -227,7 +227,7 @@ mod tests {
         let config_table_after = fetch_all_from_config_table(&conn);
         assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
-        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'base-sepolia'; \
          we discovered possibly abandoned transactions that are said yet to be pending, these are: \
           '0x0000000000000000000000000000000000000000000000000000000002b594d1', \
           '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");

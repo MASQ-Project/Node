@@ -1,16 +1,13 @@
-use crate::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
-use crate::utils::AutomapProtocol;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_AMOY_FULL_IDENTIFIER,
+    POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
-use base64::prelude::{BASE64_STANDARD_NO_PAD};
-use base64::Engine;
-use clap::builder::ValueRange;
-use clap::{value_parser, Arg, Command};
-use itertools::Itertools;
+use clap::{arg_enum, App, Arg};
 use lazy_static::lazy_static;
 use regex::Regex;
 use rustc_hex::{FromHexIter, ToHexIter};
@@ -23,14 +20,19 @@ use url::Url;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
-     https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
+     https://ropsten.infura.io/v3/<api-key>, https://mainnet.infura.io/v3/<api-key>), \
+     https://base-mainnet.g.alchemy.com/<api-key>, https://polygon-mainnet.infura.io/v3/<api-key> \n \
+     This argument is mandatory, to ensure that you will not be deliquency banned due to being unable to \
+     pay your debts to MASQ network. If you are in a region where you have no access to blockchain \
+     services, to create your own app, use one of following the public endpoints for Base Mainnet \
+     (you need to specify `--chain base-mainnet` as the chain argument): \n\
+     https://mainnet.base.org \nhttps://base.llamarpc.com \nhttps://1rpc.io/base \nhttps://base-rpc.publicnode.com";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
     Ethereum client specified by --blockchain-service-url communicates with the same blockchain network.";
 pub const CONFIG_FILE_HELP: &str =
-    "Optional TOML file containing configuration that doesn't often change. Should contain only \
-     scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+    "Optional TOML file containing configuration that seldom changes. Should contain only \
+     scalar items, string, or numeric, whose names are exactly the same as the command-line parameters \
      they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
      look for your config file starting in the --data-directory. If you specify an absolute path, \
      --data-directory will be ignored when searching for the config file. A few parameters \
@@ -75,8 +77,9 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+     masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -85,6 +88,17 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
      --neighbors is meaningless in --neighborhood-mode zero-hop.";
+pub const NEW_PUBLIC_KEY_HELP: &str = "Whenever you start it, the Node will try to use the same public key \
+     it used last time. That's '--new-public-key off'. If you want it to select a new public key when it \
+     starts, then specify '--new-public-key on', and you'll get a different one this time...which it will \
+     reuse next time unless you specify '--new-public-key on' again.\n\n\
+     You should be careful about restarting your Node with the same public key too quickly. If your new \
+     Node tries to join the Network before the Network has forgotten your old Node, every Node you try \
+     to connect to will ignore you.\n\n\
+     There are some conditions under which the Node cannot use the same public key it used last time: \
+     for example, if there was no last time, or if you don't specify a `--db-password`. Normally, in \
+     these situations, the Node will select a new public key and store it for future use; but if you \
+     explicitly demand the old public key with `--new-public-key off`, the Node will refuse to start.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -146,9 +160,9 @@ pub const REAL_USER_HELP: &str =
      like <uid>:<gid>:<home directory>.";
 pub const SCANS_HELP: &str =
     "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
-    for pending payables that have arrived (and are no longer pending), for incoming receivables that need to be \
-    recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, or if you give \
-    it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+    for pending payables that have arrived or happened to fail (and are no longer pending), for incoming receivables \
+    that need to be recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, \
+    or if you give it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
     started when the Node starts, and will have to be triggered later manually and individually with the \
     MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
     This parameter is most useful for testing.";
@@ -192,19 +206,18 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
 pub const SCAN_INTERVALS_HELP:&str = "\
      These three intervals describe the length of three different scan cycles running automatically in the background \
      since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
-     route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
-     for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+     route. Each parameter can be set independently. Technically, there doesn't have to be any lower \
      limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
      next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
      if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by vertical \
      bars and in the right order.\n\n\
-     1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
-     marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
-     confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
-     failed.\n\n\
-     2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
-     of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
-     they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+     1. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+     that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. \
+     If they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+     2. Pending Payable Scan Interval: The time elapsed since the last payable transaction was processed. This scan operates \
+     on an irregular schedule and is triggered after new transactions are sent or when failed transactions need to be replaced. \
+     The scanner monitors pending transactions and verifies their blockchain status, determining whether each payment was \
+     successfully recorded or failed. Any failed transaction is automatically resubmitted as soon as the failure is detected.\n\n\
      3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
      blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
      provided.";
@@ -240,8 +253,26 @@ pub fn GAS_PRICE_HELP() -> String {
     )
 }
 
+arg_enum! {
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+    pub enum OnOff {
+        On,
+        Off,
+    }
+}
+
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
+pub fn chain_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("chain")
+        .long("chain")
+        .value_name("CHAIN")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(official_chain_names())
+        .help(CHAIN_HELP)
+}
+
 pub fn config_file_arg() -> Arg {
     Arg::new("config-file")
         .long("config-file")
@@ -276,7 +307,9 @@ pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
-        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        BASE_MAINNET_FULL_IDENTIFIER,
+        BASE_SEPOLIA_FULL_IDENTIFIER,
+        POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
@@ -299,6 +332,26 @@ pub fn earning_wallet_arg(help: String) -> Arg {
         .num_args(ValueRange::new(0..=1))
         .value_parser(value_parser!(Wallet))
         .help(help)
+}
+
+pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("gas-price")
+        .long("gas-price")
+        .value_name("GAS-PRICE")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_gas_price)
+        .help(&GAS_PRICE_HELP)
+}
+
+pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("min-hops")
+        .long("min-hops")
+        .value_name("MIN-HOPS")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(&["1", "2", "3", "4", "5", "6"])
+        .help(MIN_HOPS_HELP)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -396,14 +449,7 @@ pub fn shared_app(head: Command) -> Command {
             .value_parser(value_parser!(PublicKey))
             .hide(true),
     )
-    .arg(
-        Arg::new("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .num_args(ValueRange::new(0..=1))
-            .value_parser(value_parser!(GasPrice))
-            .help(GAS_PRICE_HELP()),
-    )
+    .arg(gas_price_arg())
     .arg(
         Arg::new("ip")
             .long("ip")
@@ -428,15 +474,7 @@ pub fn shared_app(head: Command) -> Command {
             .value_parser(value_parser!(AutomapProtocol))
             .help(MAPPING_PROTOCOL_HELP),
     )
-    .arg(
-        Arg::new("min-hops")
-            .long("min-hops")
-            .value_name("MIN_HOPS")
-            .required(false)
-            .num_args(ValueRange::new(0..=1))
-            .value_parser(value_parser!(Hops))
-            .help(MIN_HOPS_HELP),
-    )
+    .arg(min_hops_arg())
     .arg(
         Arg::new("neighborhood-mode")
             .long("neighborhood-mode")
@@ -473,6 +511,15 @@ pub fn shared_app(head: Command) -> Command {
             .num_args(ValueRange::new(0..))
             .value_parser(value_parser!(Neighbors))
             .help(NEIGHBORS_HELP),
+    )
+    .arg(
+        Arg::with_name("new-public-key")
+            .long("new-public-key")
+            .value_name("NEW-PUBLIC-KEY")
+            .takes_value(true)
+            .possible_values(&OnOff::variants())
+            .case_insensitive(true)
+            .help(NEW_PUBLIC_KEY_HELP),
     )
     .arg(real_user_arg())
     .arg(
@@ -690,6 +737,46 @@ impl FromStr for RealUser {
 
     fn from_str(triple: &str) -> Result<Self, Self::Err> {
         if let Some(captures) = Regex::new("^([0-9]*):([0-9]*):(.*)$")
+    pub fn validate_country_code(country_code: &str) -> Result<(), String> {
+        match COUNTRIES.country_from_code(country_code).is_ok() {
+            true => Ok(()),
+            false => Err(format!(
+                "'{}' is not a valid ISO3166 country code",
+                country_code
+            )),
+        }
+    }
+
+    pub fn validate_exit_locations(exit_location: String) -> Result<(), String> {
+        validate_pipe_separated_values(exit_location, |country: String| {
+            let mut collect_fails = vec![];
+            country.split(',').into_iter().for_each(|country_code| {
+                match validate_country_code(country_code) {
+                    Ok(_) => (),
+                    Err(e) => collect_fails.push(e),
+                }
+            });
+            match collect_fails.is_empty() {
+                true => Ok(()),
+                false => Err(collect_fails.join(", ")),
+            }
+        })
+    }
+
+    pub fn validate_separate_u64_values(values: String) -> Result<(), String> {
+        validate_pipe_separated_values(values, |segment: String| {
+            segment
+                .parse::<u64>()
+                .map_err(|_| {
+                    "Supply nonnegative numeric values separated by vertical bars like 111|222|333|..."
+                        .to_string()
+                })
+                .map(|_| ())
+        })
+    }
+
+    pub fn validate_private_key(key: String) -> Result<(), String> {
+        if Regex::new("^[0-9a-fA-F]{64}$")
             .expect("Failed to compile regular expression")
             .captures(triple)
         {
@@ -1268,6 +1355,25 @@ macro_rules! make_vec_u64_type {
             }
         }
     };
+    fn validate_pipe_separated_values(
+        values_with_delimiters: String,
+        parse_value: fn(String) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut error_collection = vec![];
+        values_with_delimiters
+            .split('|')
+            .into_iter()
+            .for_each(|segment| {
+                match parse_value(segment.to_string()) {
+                    Ok(_) => (),
+                    Err(msg) => error_collection.push(msg),
+                };
+            });
+        match error_collection.is_empty() {
+            true => Ok(()),
+            false => Err(error_collection.into_iter().collect::<String>()),
+        }
+    }
 }
 
 make_vec_u64_type!(ScanIntervals, 3);
@@ -1370,6 +1476,7 @@ mod tests {
     use std::fs::File;
     use std::path::PathBuf;
     use std::str::FromStr;
+    use std::collections::HashSet;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1377,8 +1484,13 @@ mod tests {
             BLOCKCHAIN_SERVICE_HELP,
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
-             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
-             https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
+             https://ropsten.infura.io/v3/<api-key>, https://mainnet.infura.io/v3/<api-key>), \
+             https://base-mainnet.g.alchemy.com/<api-key>, https://polygon-mainnet.infura.io/v3/<api-key> \n \
+             This argument is mandatory, to ensure that you will not be deliquency banned due to being unable to \
+             pay your debts to MASQ network. If you are in a region where you have no access to blockchain \
+             services, to create your own app, use one of following the public endpoints for Base Mainnet \
+             (you need to specify `--chain base-mainnet` as the chain argument): \n\
+             https://mainnet.base.org \nhttps://base.llamarpc.com \nhttps://1rpc.io/base \nhttps://base-rpc.publicnode.com"
         );
         assert_eq!(
             CHAIN_HELP,
@@ -1387,8 +1499,8 @@ mod tests {
         );
         assert_eq!(
             CONFIG_FILE_HELP,
-            "Optional TOML file containing configuration that doesn't often change. Should contain only \
-             scalar items, string or numeric, whose names are exactly the same as the command-line parameters \
+            "Optional TOML file containing configuration that seldom changes. Should contain only \
+             scalar items, string, or numeric, whose names are exactly the same as the command-line parameters \
              they replace (except no '--' prefix). If you specify a relative path, or no path, the Node will \
              look for your config file starting in the --data-directory. If you specify an absolute path, \
              --data-directory will be ignored when searching for the config file. A few parameters \
@@ -1452,8 +1564,9 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+                  masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -1524,6 +1637,16 @@ mod tests {
              run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
              you start the Node using pkexec or some other method that doesn't populate the SUDO_xxx variables. Use a value \
              like <uid>:<gid>:<home directory>."
+        );
+        assert_eq!(
+            SCANS_HELP,
+            "The Node, when running, performs various periodic scans, including scanning for payables that need to be paid, \
+             for pending payables that have arrived or happened to fail (and are no longer pending), for incoming receivables \
+             that need to be recorded, and for delinquent Nodes that need to be banned. If you don't specify this parameter, \
+             or if you give it the value 'on', these scans will proceed normally. But if you give the value 'off', the scans won't be \
+             started when the Node starts, and will have to be triggered later manually and individually with the \
+             MASQNode-UIv2 'scan' command. (If you don't, you'll most likely be delinquency-banned by all your neighbors.) \
+             This parameter is most useful for testing."
         );
 
         assert_eq!(
@@ -1601,23 +1724,40 @@ mod tests {
             SCAN_INTERVALS_HELP,
             "These three intervals describe the length of three different scan cycles running automatically in the background \
              since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
-             route. Each parameter can be set independently, but by default are all the same which currently is most desirable \
-             for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower \
+             route. Each parameter can be set independently. Technically, there doesn't have to be any lower \
              limit for the minimum of time you can set; two scans of the same sort would never run at the same time but the \
              next one is always scheduled not earlier than the end of the previous one. These are ever present values, no matter \
              if the user's set any value, they have defaults. The parameters must be always supplied all together, delimited by \
              vertical bars and in the right order.\n\n\
-             1. Pending Payable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments that are \
-             marked as currently pending; the payments were sent to pay our debts, the payable. The purpose of this process is to \
-             confirm the status of the pending payment; either the payment transaction was written on blockchain as successful or \
-             failed.\n\n\
-             2. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
-             of that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
+             1. Payable Scan Interval: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts \
+             that meet the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If \
              they meet the Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.\n\n\
+             2. Pending Payable Scan Interval: The time elapsed since the last payable transaction was processed. This scan operates \
+             on an irregular schedule and is triggered after new transactions are sent or when failed transactions need \
+             to be replaced. The scanner monitors pending transactions and verifies their blockchain status, determining whether \
+             each payment was successfully recorded or failed. Any failed transaction is automatically resubmitted as soon \
+             as the failure is detected.\n\n\
              3. Receivable Scan Interval: Amount of seconds between two sequential cycles of scanning for payments on the \
              blockchain that have been sent by our creditors to us, which are credited against receivables recorded for services \
              provided."
         )
+    }
+
+    #[test]
+    fn validate_exit_key_fails_on_not_valid_country_code() {
+        let result = common_validators::validate_exit_locations(String::from("AD|AO,RR,XP"));
+
+        assert_eq!(
+            result,
+            Err("'RR' is not a valid ISO3166 country code, 'XP' is not a valid ISO3166 country code".to_string())
+        );
+    }
+
+    #[test]
+    fn validate_exit_key_success() {
+        let result = common_validators::validate_exit_locations(String::from("AD|AS"));
+
+        assert_eq!(result, Ok(()));
     }
 
     #[test]
@@ -2516,6 +2656,36 @@ mod tests {
         assert_eq!(
             result,
             Err("Hexadecimal string must have even number of digits, not 1".to_string())
+        );
+    fn official_chain_names_are_reliable() {
+        let expected_supported_chains = [
+            Chain::PolyMainnet,
+            Chain::EthMainnet,
+            Chain::BaseMainnet,
+            Chain::BaseSepolia,
+            Chain::PolyAmoy,
+            Chain::EthRopsten,
+            Chain::Dev,
+        ]
+        .into_iter()
+        .collect::<HashSet<Chain>>();
+
+        let chain_names_recognizable_by_clap = official_chain_names();
+
+        let chains_from_clap = chain_names_recognizable_by_clap
+            .into_iter()
+            .map(|chain_name| Chain::from(*chain_name))
+            .collect::<HashSet<Chain>>();
+        let differences = chains_from_clap
+            .symmetric_difference(&expected_supported_chains)
+            .collect::<Vec<&Chain>>();
+        assert!(
+            differences.is_empty(),
+            "There are differences in the Clap schema in the collection of supported chains, \
+        between the expected values {:?} and actual {:?}, specifically {:?}",
+            expected_supported_chains,
+            chains_from_clap,
+            differences
         );
     }
 }

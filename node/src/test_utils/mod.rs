@@ -2,6 +2,7 @@
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
+pub mod actor_system_factory;
 pub mod automap_mocks;
 pub mod data_hunk;
 pub mod data_hunk_framer;
@@ -11,29 +12,26 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+pub mod recorder_counter_msgs;
 pub mod recorder_stop_conditions;
+pub mod serde_serializer_mock;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
+
 use crate::blockchain::bip32::Bip32EncryptionKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::cryptde::CryptDE;
-use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::dispatcher::Component;
-use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, RatePack};
-use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
-use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
@@ -48,11 +46,19 @@ use std::collections::btree_set::BTreeSet;
 use std::collections::HashSet;
 use std::convert::From;
 use std::fmt::Debug;
+
 use std::hash::Hash;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::net::SocketAddr;
+use std::iter::repeat;
 use std::net::{Shutdown, TcpStream};
+
+use crate::sub_lib::hopper::MessageType;
+use crate::sub_lib::host::Host;
+use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
+use crate::sub_lib::stream_key::StreamKey;
+use masq_lib::constants::{HTTP_PORT, TLS_PORT};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -61,28 +67,6 @@ use std::time::Instant;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::unbounded_channel;
 use web3::types::{Address, U256};
-
-lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-}
-
-pub fn main_cryptde() -> &'static dyn CryptDE {
-    MAIN_CRYPTDE_NULL.as_ref()
-}
-
-pub fn alias_cryptde() -> &'static dyn CryptDE {
-    ALIAS_CRYPTDE_NULL.as_ref()
-}
-
-pub fn make_cryptde_pair() -> CryptDEPair {
-    CryptDEPair {
-        main: main_cryptde(),
-        alias: alias_cryptde(),
-    }
-}
 
 pub struct ArgsBuilder {
     args: Vec<String>,
@@ -193,45 +177,39 @@ impl Waiter {
     }
 }
 
-pub fn make_meaningless_stream_key() -> StreamKey {
-    StreamKey::new(
-        PublicKey::new(&[]),
-        SocketAddr::from_str("4.3.2.1:8765").unwrap(),
-    )
-}
-
-pub fn make_meaningless_message_type() -> MessageType {
-    DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
-}
-
-pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
+pub fn make_one_way_route_to_proxy_client(
+    public_keys: Vec<&PublicKey>,
+    cryptde_pair: &CryptDEPair,
+) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
-        main_cryptde(),
+        cryptde_pair.main.as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
 
-pub fn make_meaningless_route() -> Route {
+pub fn make_meaningless_route(cryptde_pair: &CryptDEPair) -> Route {
     Route::one_way(
         RouteSegment::new(
             vec![
-                &make_meaningless_public_key(),
-                &make_meaningless_public_key(),
+                &make_meaningless_public_key(cryptde_pair),
+                &make_meaningless_public_key(cryptde_pair),
             ],
             Component::ProxyClient,
         ),
-        main_cryptde(),
+        cryptde_pair.main.as_ref(),
         Some(make_paying_wallet(b"irrelevant")),
         Some(TEST_DEFAULT_CHAIN.rec().contract),
     )
     .unwrap()
 }
 
-pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(main_cryptde().public_key().len()))
+pub fn make_meaningless_public_key(cryptde_pair: &CryptDEPair) -> PublicKey {
+    PublicKey::new(&make_garbage_data(
+        cryptde_pair.main.as_ref().public_key().len(),
+    ))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -240,25 +218,26 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 }
 
 // TODO: The three functions below should use only one argument, cryptde
-pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE, tls: bool) -> Route {
     shift_one_hop(
-        zero_hop_route_response(main_key, main_cryptde).route,
+        zero_hop_route_response(main_key, main_cryptde, tls).route,
         main_cryptde,
     )
 }
 
-pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
+pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE, tls: bool) -> Route {
     // Happens to be the same
-    route_to_proxy_client(key, cryptde)
+    route_to_proxy_client(key, cryptde, tls)
 }
 
-pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
+pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE, tls: bool) -> Route {
+    shift_one_hop(route_from_proxy_client(key, cryptde, tls), cryptde)
 }
 
 pub fn zero_hop_route_response(
     public_key: &PublicKey,
     cryptde: &dyn CryptDE,
+    tls: bool,
 ) -> RouteQueryResponse {
     RouteQueryResponse {
         route: Route::round_trip(
@@ -266,15 +245,14 @@ pub fn zero_hop_route_response(
             RouteSegment::new(vec![public_key, public_key], Component::ProxyServer),
             cryptde,
             None,
-            0,
             None,
         )
         .unwrap(),
         expected_services: ExpectedServices::RoundTrip(
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
             vec![ExpectedService::Nothing, ExpectedService::Nothing],
-            0,
         ),
+        host: Host::new("booga.com", if tls { TLS_PORT } else { HTTP_PORT }),
     }
 }
 
@@ -283,45 +261,10 @@ fn shift_one_hop(mut route: Route, cryptde: &dyn CryptDE) -> Route {
     route
 }
 
-pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> CryptData {
-    let return_route_id_ser = serde_cbor::ser::to_vec(&return_route_id).unwrap();
-    cryptde
-        .encode(cryptde.public_key(), &PlainData::from(return_route_id_ser))
-        .unwrap()
-}
-
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
     let mut data = vec![0; bytes];
     rand::thread_rng().fill_bytes(&mut data);
     data
-}
-
-pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
-    ClientRequestPayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
-        sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
-        target_hostname: Some("example.com".to_string()),
-        target_port: HTTP_PORT,
-        protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key().clone(),
-    }
-}
-
-pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientResponsePayload_0v1 {
-    ClientResponsePayload_0v1 {
-        stream_key: StreamKey::new(
-            cryptde.public_key().clone(),
-            SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        ),
-        sequenced_packet: SequencedPacket {
-            data: make_garbage_data(bytes),
-            sequence_number: 0,
-            last_data: false,
-        },
-    }
 }
 
 pub fn make_send_error() -> SendError<SequencedPacket> {
@@ -527,6 +470,10 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
+pub fn make_meaningless_message_type(stream_key: StreamKey) -> MessageType {
+    DnsResolveFailure_0v1::new(stream_key).into()
+}
+
 pub fn handle_connection_error(stream: TcpStream) {
     let _ = stream.shutdown(Shutdown::Both).is_ok();
     thread::sleep(Duration::from_millis(5000));
@@ -568,7 +515,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
     assert_eq!(a_str, b_str);
 }
 
-//must stay without cfg(test) -- used in another crate
+// Must stay without cfg(test) -- used in another crate
 #[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
@@ -579,6 +526,14 @@ pub struct TestRawTransaction {
     #[serde(rename = "gasLimit")]
     pub gas_limit: U256,
     pub data: Vec<u8>,
+}
+
+#[macro_export]
+macro_rules! arbitrary_id_stamp_in_trait {
+    () => {
+        #[cfg(test)]
+        $crate::arbitrary_id_stamp_in_trait_internal___!();
+    };
 }
 
 #[cfg(test)]
@@ -593,20 +548,31 @@ pub mod unshared_test_utils {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-    use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
+    use crate::sub_lib::cryptde::CryptDE;
+    use crate::sub_lib::neighborhood::{
+        ConnectionProgressMessage, RatePack, RatePackLimits, DEFAULT_RATE_PACK,
+    };
+    use crate::sub_lib::proxy_client::ClientResponsePayload_0v1;
+    use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
+    use crate::sub_lib::sequence_buffer::SequencedPacket;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
+    use crate::test_utils::make_garbage_data;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
-    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::recorder_stop_conditions::{MsgIdentification, StopConditions};
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
     use itertools::Either;
+    use lazy_static::lazy_static;
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::HTTP_PORT;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -631,6 +597,18 @@ pub mod unshared_test_utils {
     #[rtype(result = "()")]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
+    }
+
+    pub fn capture_digits_with_separators_from_str(
+        surveyed_str: &str,
+        length_between_separators: usize,
+        separator: char,
+    ) -> Vec<String> {
+        let regex =
+            format!("(\\d{{1,{length_between_separators}}}(?:{separator}\\d{{{length_between_separators}}})+)");
+        let re = regex::Regex::new(&regex).unwrap();
+        let captures = re.captures_iter(surveyed_str);
+        captures.map(|capture| capture[1].to_string()).collect()
     }
 
     pub async fn assert_on_initialization_with_panic_on_migration<F, A>(data_dir: PathBuf, act: A)
@@ -694,6 +672,14 @@ pub mod unshared_test_utils {
         MultiConfig::from(arg_matches)
     }
 
+    lazy_static! {
+        pub static ref TEST_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
+            payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(360),
+            receivable_scan_interval: Duration::from_secs(600),
+        };
+    }
+
     pub const ZERO: u32 = 0b0;
     pub const MAPPING_PROTOCOL: u32 = 0b000010;
     pub const ACCOUNTANT_CONFIG_PARAMS: u32 = 0b000100;
@@ -716,6 +702,10 @@ pub mod unshared_test_utils {
         } else {
             config
         };
+        let config = config.rate_pack_limits_result(Ok(RatePackLimits::new(
+            RatePack::new(u64::MIN, u64::MIN, u64::MIN, u64::MIN),
+            RatePack::new(u64::MAX, u64::MAX, u64::MAX, u64::MAX),
+        )));
         config
     }
 
@@ -738,17 +728,17 @@ pub mod unshared_test_utils {
     ) -> PersistentConfigurationMock {
         persistent_config_mock
             .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(ScanIntervals::default()))
+            .scan_intervals_result(Ok(*TEST_SCAN_INTERVALS))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
         PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
     }
 
-    pub fn make_bc_with_defaults() -> BootstrapperConfig {
+    pub fn make_bc_with_defaults(chain: Chain) -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
-        config.scan_intervals_opt = Some(ScanIntervals::default());
-        config.suppress_initial_scans = false;
+        config.scan_intervals_opt = Some(ScanIntervals::compute_default(chain));
+        config.automatic_scans_enabled = true;
         config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
@@ -764,15 +754,37 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
-                StopCondition::StopOnType(type_id),
-            ])), // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::AllLazily(vec![
+                MsgIdentification::ByType(type_id),
+            ])), // This will take care of stopping the system
             None => recorder,
         };
         let addr = recorder.start();
         let recipient = addr.recipient::<M>();
 
         (recipient, recording_arc)
+    }
+
+    pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
+        ClientRequestPayload_0v1 {
+            stream_key: StreamKey::make_meaningful_stream_key("request"),
+            sequenced_packet: SequencedPacket::new(make_garbage_data(bytes), 0, true),
+            target_hostname: "www.example.com".to_string(),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: cryptde.public_key().clone(),
+        }
+    }
+
+    pub fn make_response_payload(bytes: usize) -> ClientResponsePayload_0v1 {
+        ClientResponsePayload_0v1 {
+            stream_key: StreamKey::make_meaningful_stream_key("response"),
+            sequenced_packet: SequencedPacket {
+                data: make_garbage_data(bytes),
+                sequence_number: 0,
+                last_data: false,
+            },
+        }
     }
 
     pub fn make_cpm_recipient() -> (Recipient<ConnectionProgressMessage>, Arc<Mutex<Recording>>) {
@@ -988,17 +1000,23 @@ pub mod unshared_test_utils {
 
     pub mod notify_handlers {
         use super::*;
+        use std::fmt::Debug;
 
         pub struct NotifyLaterHandleMock<M> {
             notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            stop_system_on_count_received_opt: RefCell<Option<usize>>,
             send_message_out: bool,
+            // To prove that no msg was tried to be scheduled
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyLaterHandleMock<M> {
             fn default() -> Self {
                 Self {
                     notify_later_params: Arc::new(Mutex::new(vec![])),
+                    stop_system_on_count_received_opt: RefCell::new(None),
                     send_message_out: false,
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -1009,15 +1027,30 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn permit_to_send_out(mut self) -> Self {
+            pub fn stop_system_on_count_received(self, count: usize) -> Self {
+                if count == 0 {
+                    panic!("Should be a none-zero value")
+                }
+                let system_killer = SystemKillerActor::new(Duration::from_secs(10));
+                system_killer.start();
+                self.stop_system_on_count_received_opt.replace(Some(count));
+                self
+            }
+
+            pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
+                self
+            }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
                 self
             }
         }
 
         impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + Clone + Debug + Send + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify_later<'a>(
@@ -1026,10 +1059,25 @@ pub mod unshared_test_utils {
                 interval: Duration,
                 ctx: &'a mut Context<A>,
             ) -> Box<dyn NLSpawnHandleHolder> {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?} and interval {}ms, thought not expected",
+                        msg,
+                        interval.as_millis()
+                    );
+                }
                 self.notify_later_params
                     .lock()
                     .unwrap()
                     .push((msg.clone(), interval));
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
+                    *remaining -= 1;
+                    if remaining == &0 {
+                        System::current().stop();
+                    }
+                }
                 if self.send_message_out {
                     let handle = ctx.notify_later(msg, interval);
                     Box::new(NLSpawnHandleHolderReal::new(handle))
@@ -1050,6 +1098,8 @@ pub mod unshared_test_utils {
         pub struct NotifyHandleMock<M> {
             notify_params: Arc<Mutex<Vec<M>>>,
             send_message_out: bool,
+            stop_system_on_count_received_opt: RefCell<Option<usize>>,
+            panic_on_schedule_attempt: bool,
         }
 
         impl<M: Message> Default for NotifyHandleMock<M> {
@@ -1057,6 +1107,8 @@ pub mod unshared_test_utils {
                 Self {
                     notify_params: Arc::new(Mutex::new(vec![])),
                     send_message_out: false,
+                    stop_system_on_count_received_opt: RefCell::new(None),
+                    panic_on_schedule_attempt: false,
                 }
             }
         }
@@ -1067,46 +1119,338 @@ pub mod unshared_test_utils {
                 self
             }
 
-            pub fn permit_to_send_out(mut self) -> Self {
+            pub fn capture_msg_and_let_it_fly_on(mut self) -> Self {
                 self.send_message_out = true;
+                self
+            }
+
+            pub fn stop_system_on_count_received(self, msg_count: usize) -> Self {
+                if msg_count == 0 {
+                    panic!("Should be a non-zero value")
+                }
+                let system_killer = SystemKillerActor::new(Duration::from_secs(10));
+                system_killer.start();
+                self.stop_system_on_count_received_opt
+                    .replace(Some(msg_count));
+                self
+            }
+
+            pub fn panic_on_schedule_attempt(mut self) -> Self {
+                self.panic_on_schedule_attempt = true;
                 self
             }
         }
 
         impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
         where
-            M: Message + 'static + Clone,
+            M: Message + Debug + Clone + 'static,
             A: Actor<Context = Context<A>> + Handler<M>,
         {
             fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                if self.panic_on_schedule_attempt {
+                    panic!(
+                        "Message scheduling request for {:?}, thought not expected",
+                        msg
+                    )
+                }
                 self.notify_params.lock().unwrap().push(msg.clone());
+                if let Some(remaining) =
+                    self.stop_system_on_count_received_opt.borrow_mut().as_mut()
+                {
+                    *remaining -= 1;
+                    if remaining == &0 {
+                        System::current().stop();
+                        return;
+                    }
+                }
                 if self.send_message_out {
                     ctx.notify(msg)
                 }
             }
         }
     }
+
+    pub mod arbitrary_id_stamp {
+        use super::*;
+        use crate::arbitrary_id_stamp_in_trait;
+
+        //The issues we are to solve might look as follows:
+
+        // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
+        // safeness) and therefore they cannot be captured unless you use a reference which is
+        // practically impossible with that mock strategy we use,
+        // 2) You can get only very limited information from downcasting: you can inspect the guts, yes,
+        // but it can hardly ever answer your question if the object you're looking at is the same which
+        // you've pasted in before at the other end.
+        // 3) Using raw pointers to link the real memory address to your objects does not lead to good
+        // results in all cases (It was found confusing and hard to be done correctly or even impossible
+        // to implement, especially for references pointing to a dereferenced Box that was originally
+        // supplied as an owned argument into the testing environment at the beginning, or we can
+        // suspect the memory link already broken because of moves of the owned boxed instance
+        // around the subjected code)
+
+        // Advice is given here to use the convenient macros provided further in this module. Their easy
+        // implementation should spare some work for you.
+
+        // Note for future maintainers:
+        // Since trait objects cannot be Cloned, when you find an arbitrary ID on an object, you
+        // know that that ID must have been set on that specific object, and not on some other object
+        // from which this object was Cloned.
+
+        lazy_static! {
+            pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+                Mutex::new(MutexIncrementInset(0));
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct ArbitraryIdStamp {
+            id_opt: Option<usize>,
+        }
+
+        impl ArbitraryIdStamp {
+            pub fn new() -> Self {
+                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                access.0 += 1;
+                ArbitraryIdStamp {
+                    id_opt: Some(access.0),
+                }
+            }
+
+            pub fn null() -> Self {
+                ArbitraryIdStamp { id_opt: None }
+            }
+        }
+
+        // To be added together with other methods in your trait
+        // DO NOT USE ME DIRECTLY, USE arbitrary_id_stamp_in_trait INSTEAD!
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait_internal___ {
+            () => {
+                fn arbitrary_id_stamp(
+                    &self,
+                ) -> crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp {
+                    // No necessity to implement this method for all impls,
+                    // basically you want to do that just for the mock version
+
+                    intentionally_blank!()
+                }
+            };
+        }
+
+        // The following macros might be handy but your mock object must contain this field:
+        //
+        ///  struct SomeMock{
+        ///     ...
+        ///     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+        ///     ...
+        ///  }
+        //
+        // Refcell is omitted because ArbitraryIdStamp is Copy
+
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait_impl {
+            () => {
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    match self.arbitrary_id_stamp_opt {
+                        Some(id) => id,
+                        // In some implementations of mocks that have methods demanding args, the best we can do in order to
+                        // capture and examine these args in assertions is to receive the ArbitraryIdStamp of the given
+                        // argument.
+                        // If such strategy is once decided for, transfers of this id will have to happen in all the tests
+                        // relying on this mock, while also calling the intended method. So even in cases where we certainly
+                        // are not really interested in checking that id, if we ignored that, the call of this method would
+                        // blow up because the field that stores it is likely optional, with the value defaulted to None.
+                        //
+                        // As prevention of confusion from putting a requirement on devs to set the id stamp even though
+                        // they're not planning to use it, we have a null type of that stamp to be there at most cases.
+                        // As a result, we don't risk a direct punishment (for the None value being the problem) but also
+                        // we'll set the assertion on fire if it doesn't match the expected id in tests where we suddenly
+                        // do care
+                        None => ArbitraryIdStamp::null(),
+                    }
+                }
+            };
+        }
+
+        #[macro_export]
+        macro_rules! set_arbitrary_id_stamp_in_mock_impl {
+            () => {
+                pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
+                    self.arbitrary_id_stamp_opt.replace(id_stamp);
+                    self
+                }
+            };
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // Demonstration of implementation through made up code structures
+        // Showed by a test also placed in the test section of this file
+
+        // This is the trait object that requires some specific identification - the id stamp
+        // is going to help there
+
+        pub(in crate::test_utils) trait FirstTrait {
+            fn whatever_method(&self) -> String;
+            arbitrary_id_stamp_in_trait!();
+        }
+
+        struct FirstTraitReal {}
+
+        impl FirstTrait for FirstTraitReal {
+            fn whatever_method(&self) -> String {
+                unimplemented!("example-irrelevant")
+            }
+        }
+
+        #[derive(Default)]
+        pub(in crate::test_utils) struct FirstTraitMock {
+            #[allow(dead_code)]
+            whatever_method_results: RefCell<Vec<String>>,
+            arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+        }
+
+        impl FirstTrait for FirstTraitMock {
+            fn whatever_method(&self) -> String {
+                unimplemented!("example-irrelevant")
+            }
+            arbitrary_id_stamp_in_trait_impl!();
+        }
+
+        impl FirstTraitMock {
+            set_arbitrary_id_stamp_in_mock_impl!();
+        }
+
+        // We don't need an arbitrary_id in a trait if one of these things is true:
+
+        // Objects of that trait have some native field about them that can be set to
+        // different values so that we can distinguish different instances in an assertion.
+        // There are no tests involving objects of that trait where instances are passed
+        // as parameters to a mock and need to be asserted on as part of a ..._params_arc
+        // collection.
+
+        // This second criterion may change; therefore a trait may start out without any
+        // arbitrary_id, and then at a later time collect one because of changes
+        // elsewhere in the system.
+
+        pub(in crate::test_utils) trait SecondTrait {
+            fn method_with_trait_obj_arg(&self, trait_object_arg: &dyn FirstTrait) -> u16;
+        }
+
+        pub(in crate::test_utils) struct SecondTraitReal {}
+
+        impl SecondTrait for SecondTraitReal {
+            fn method_with_trait_obj_arg(&self, _trait_object_arg: &dyn FirstTrait) -> u16 {
+                unimplemented!("example-irrelevant")
+            }
+        }
+
+        #[derive(Default)]
+        pub(in crate::test_utils) struct SecondTraitMock {
+            method_with_trait_obj_arg_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+            method_with_trait_obj_arg_results: RefCell<Vec<u16>>,
+        }
+
+        impl SecondTrait for SecondTraitMock {
+            fn method_with_trait_obj_arg(&self, trait_object_arg: &dyn FirstTrait) -> u16 {
+                self.method_with_trait_obj_arg_params
+                    .lock()
+                    .unwrap()
+                    .push(trait_object_arg.arbitrary_id_stamp());
+                self.method_with_trait_obj_arg_results
+                    .borrow_mut()
+                    .remove(0)
+            }
+        }
+
+        impl SecondTraitMock {
+            pub fn method_with_trait_obj_arg_params(
+                mut self,
+                params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+            ) -> Self {
+                self.method_with_trait_obj_arg_params = params.clone();
+                self
+            }
+
+            pub fn method_with_trait_obj_arg_result(self, result: u16) -> Self {
+                self.method_with_trait_obj_arg_results
+                    .borrow_mut()
+                    .push(result);
+                self
+            }
+        }
+
+        pub(in crate::test_utils) struct TestSubject {
+            pub some_doer: Box<dyn SecondTrait>,
+        }
+
+        impl TestSubject {
+            pub fn new() -> Self {
+                Self {
+                    some_doer: Box::new(SecondTraitReal {}),
+                }
+            }
+
+            pub fn tested_function(&self, outer_object: &dyn FirstTrait) -> u16 {
+                //some extra functionality might be here...
+
+                let num = self.some_doer.method_with_trait_obj_arg(outer_object);
+
+                //...and also here
+
+                num
+            }
+        }
+    }
+
+    pub struct SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub address_leaker: Sender<Addr<A>>,
+    }
+
+    impl<A> SubsFactoryTestAddrLeaker<A>
+    where
+        A: actix::Actor,
+    {
+        pub fn send_leaker_msg_and_return_meaningless_subs<S>(
+            &self,
+            addr: &Addr<A>,
+            make_subs_from_recorder_fn: fn(&Addr<Recorder>) -> S,
+        ) -> S {
+            self.address_leaker.try_send(addr.clone()).unwrap();
+            let meaningless_addr = Recorder::new().start();
+            make_subs_from_recorder_fn(&meaningless_addr)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
+        ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
+    };
+    use lazy_static::lazy_static;
     use std::borrow::BorrowMut;
     use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
 
-    use super::*;
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn characterize_zero_hop_route() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = zero_hop_route_response(&key, cryptde);
+        let subject = zero_hop_route_response(&key, cryptde, false);
 
         assert_eq!(
             subject.route.hops,
@@ -1120,7 +1464,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
             )
         );
         assert_eq!(
@@ -1128,17 +1471,16 @@ mod tests {
             ExpectedServices::RoundTrip(
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
                 vec![ExpectedService::Nothing, ExpectedService::Nothing,],
-                0
             )
         );
     }
 
     #[test]
     fn characterize_route_to_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_client(&key, cryptde);
+        let subject = route_to_proxy_client(&key, cryptde, false);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -1151,7 +1493,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1159,10 +1500,10 @@ mod tests {
 
     #[test]
     fn characterize_route_from_proxy_client() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_from_proxy_client(&key, cryptde);
+        let subject = route_from_proxy_client(&key, cryptde, false);
 
         let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
@@ -1175,7 +1516,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&garbage_can[..])
             )
         );
@@ -1183,10 +1523,10 @@ mod tests {
 
     #[test]
     fn characterize_route_to_proxy_server() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
-        let subject = route_to_proxy_server(&key, cryptde);
+        let subject = route_to_proxy_server(&key, cryptde, false);
 
         let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
         let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
@@ -1198,7 +1538,6 @@ mod tests {
                 LiveHop::new(&PublicKey::new(b""), None, Component::ProxyServer)
                     .encode(&key, cryptde)
                     .unwrap(),
-                encrypt_return_route_id(0, cryptde),
                 CryptData::new(&first_garbage_can[..]),
                 CryptData::new(&second_garbage_can[..]),
             )

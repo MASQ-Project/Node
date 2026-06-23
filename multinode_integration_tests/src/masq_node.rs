@@ -6,6 +6,8 @@ use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
     MASQ_URL_PREFIX,
 };
+use masq_lib::utils::to_string;
+use node_lib::neighborhood::node_location::get_node_location;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -83,7 +85,7 @@ impl fmt::Display for NodeReference {
             Some(node_addr) => node_addr
                 .ports()
                 .iter()
-                .map(|port| port.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>()
                 .join(NodeAddr::PORTS_SEPARATOR),
             None => String::new(),
@@ -211,6 +213,7 @@ pub trait MASQNode: Any {
     fn chain(&self) -> Chain;
     fn accepts_connections(&self) -> bool;
     fn routes_data(&self) -> bool;
+    fn country_code_opt(&self) -> Option<String>;
 }
 
 pub struct MASQNodeUtils {}
@@ -250,7 +253,7 @@ impl MASQNodeUtils {
         SocketAddr::new(node_addr.ip_addr(), port_list[idx])
     }
 
-    pub fn wrote_log_containing(name: &str, pattern: &str, timeout: Duration) {
+    pub fn assert_node_wrote_log_containing(name: &str, pattern: &str, timeout: Duration) {
         let time_limit = Instant::now() + timeout;
         let mut entire_log = String::new();
         while Instant::now() < time_limit {
@@ -299,6 +302,15 @@ impl MASQNodeUtils {
             PathBuf::from(start)
         } else {
             Self::start_from(start.parent().unwrap())
+        }
+    }
+
+    pub fn derive_country_code_opt(node_addr: &NodeAddr) -> Option<String> {
+        let country_code_opt = get_node_location(Some(node_addr.ip_addr()));
+        if let Some(cc) = country_code_opt {
+            Some(cc.country_code)
+        } else {
+            None
         }
     }
 }

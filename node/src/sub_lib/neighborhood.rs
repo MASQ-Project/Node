@@ -3,15 +3,15 @@
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::overall_connection_status::ConnectionProgress;
-use crate::neighborhood::Neighborhood;
-use crate::sub_lib::configurator::NewPasswordMessage;
+use crate::neighborhood::{Neighborhood, UserExitPreferences};
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::ExpiredCoresPackage;
+use crate::sub_lib::host::Host;
+use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
 use crate::sub_lib::route::Route;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
@@ -24,6 +24,7 @@ use lazy_static::lazy_static;
 use masq_lib::blockchains::blockchain_records::CHAINS;
 use masq_lib::blockchains::chains::{chain_from_chain_identifier_opt, Chain};
 use masq_lib::constants::{CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, MASQ_URL_PREFIX};
+use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::node_addr::NodeAddr;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use serde_derive::{Deserialize, Serialize};
@@ -37,10 +38,10 @@ use std::time::Duration;
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 172_300_000,
-    routing_service_rate: 1_723_000_000,
-    exit_byte_rate: 344_600_000,
-    exit_service_rate: 3_446_000_000,
+    routing_byte_rate: 53_844,
+    routing_service_rate: 53_844,
+    exit_byte_rate: 107_688,
+    exit_service_rate: 107_688,
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
@@ -48,6 +49,21 @@ pub const ZERO_RATE_PACK: RatePack = RatePack {
     routing_service_rate: 0,
     exit_byte_rate: 0,
     exit_service_rate: 0,
+};
+
+pub const DEFAULT_RATE_PACK_LIMITS: RatePackLimits = RatePackLimits {
+    lo: RatePack {
+        routing_byte_rate: 100,
+        routing_service_rate: 100,
+        exit_byte_rate: 100,
+        exit_service_rate: 100,
+    },
+    hi: RatePack {
+        routing_byte_rate: 100_000_000_000_000,
+        routing_service_rate: 100_000_000_000_000,
+        exit_byte_rate: 100_000_000_000_000,
+        exit_service_rate: 100_000_000_000_000,
+    },
 };
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -59,12 +75,129 @@ pub struct RatePack {
 }
 
 impl RatePack {
+    pub fn new(
+        routing_byte_rate: u64,
+        routing_service_rate: u64,
+        exit_byte_rate: u64,
+        exit_service_rate: u64,
+    ) -> Self {
+        Self {
+            routing_byte_rate,
+            routing_service_rate,
+            exit_byte_rate,
+            exit_service_rate,
+        }
+    }
+
     pub fn routing_charge(&self, payload_size: u64) -> u64 {
         self.routing_service_rate + (self.routing_byte_rate * payload_size)
     }
 
     pub fn exit_charge(&self, payload_size: u64) -> u64 {
         self.exit_service_rate + (self.exit_byte_rate * payload_size)
+    }
+
+    pub fn rate_pack_parameter(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.routing_byte_rate,
+            self.routing_service_rate,
+            self.exit_byte_rate,
+            self.exit_service_rate,
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RatePackLimits {
+    pub lo: RatePack,
+    pub hi: RatePack,
+}
+
+impl RatePackLimits {
+    pub fn new(lo: RatePack, hi: RatePack) -> Self {
+        Self { lo, hi }
+    }
+
+    pub fn check(&self, rate_pack: &RatePack) -> bool {
+        self.analyze(rate_pack).is_ok()
+    }
+
+    pub fn analyze(&self, rate_pack: &RatePack) -> Result<(), ConfiguratorError> {
+        let check_min_and_max = |candidate: u64,
+                                 min: u64,
+                                 max: u64,
+                                 name: &str,
+                                 error: ConfiguratorError|
+         -> ConfiguratorError {
+            let mut result = error;
+            if candidate < min {
+                result = result.another_required(
+                    "rate-pack",
+                    &format!(
+                        "Value of {} ({}) is below the minimum allowed ({})",
+                        name, candidate, min
+                    ),
+                );
+            } else if candidate > max {
+                result = result.another_required(
+                    "rate-pack",
+                    &format!(
+                        "Value of {} ({}) is above the maximum allowed ({})",
+                        name, candidate, max
+                    ),
+                );
+            }
+            result
+        };
+        let mut error = ConfiguratorError::new(vec![]);
+        error = check_min_and_max(
+            rate_pack.routing_byte_rate,
+            self.lo.routing_byte_rate,
+            self.hi.routing_byte_rate,
+            "routing_byte_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.routing_service_rate,
+            self.lo.routing_service_rate,
+            self.hi.routing_service_rate,
+            "routing_service_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.exit_byte_rate,
+            self.lo.exit_byte_rate,
+            self.hi.exit_byte_rate,
+            "exit_byte_rate",
+            error,
+        );
+        error = check_min_and_max(
+            rate_pack.exit_service_rate,
+            self.lo.exit_service_rate,
+            self.hi.exit_service_rate,
+            "exit_service_rate",
+            error,
+        );
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
+    pub fn rate_pack_limits_parameter(&self) -> String {
+        format!(
+            "{}-{}|{}-{}|{}-{}|{}-{}",
+            self.lo.routing_byte_rate,
+            self.hi.routing_byte_rate,
+            self.lo.routing_service_rate,
+            self.hi.routing_service_rate,
+            self.lo.exit_byte_rate,
+            self.hi.exit_byte_rate,
+            self.lo.exit_service_rate,
+            self.hi.exit_service_rate,
+        )
     }
 }
 
@@ -77,7 +210,7 @@ pub enum NeighborhoodMode {
 }
 
 impl Display for NeighborhoodMode {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             NeighborhoodMode::Standard(_, _, _) => write!(f, "Standard"),
             NeighborhoodMode::ZeroHop => write!(f, "ZeroHop"),
@@ -263,7 +396,7 @@ impl NodeDescriptor {
             CHAIN_IDENTIFIER_DELIMITER,
             contact_public_key_string,
             CENTRAL_DELIMITER,
-            node_addr_string
+            node_addr_string,
         )
     }
 
@@ -359,7 +492,7 @@ enum DescriptorParsingError<'a> {
 }
 
 impl Display for DescriptorParsingError<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         fn only_user_intended() -> String {
             CHAINS
                 .iter()
@@ -387,6 +520,37 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
+pub enum Hops {
+    OneHop = 1,
+    TwoHops = 2,
+    ThreeHops = 3, // minimum for anonymity
+    FourHops = 4,
+    FiveHops = 5,
+    SixHops = 6,
+}
+
+impl FromStr for Hops {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "1" => Ok(Hops::OneHop),
+            "2" => Ok(Hops::TwoHops),
+            "3" => Ok(Hops::ThreeHops),
+            "4" => Ok(Hops::FourHops),
+            "5" => Ok(Hops::FiveHops),
+            "6" => Ok(Hops::SixHops),
+            _ => Err("Invalid value for min hops provided".to_string()),
+        }
+    }
+}
+
+impl Display for Hops {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self as usize)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
@@ -404,20 +568,19 @@ pub struct NeighborhoodSubs {
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
     pub route_query: Recipient<RouteQueryMessage>,
-    pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    pub update_node_record_metadata: Recipient<UpdateNodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
     pub remove_neighbor: Recipient<RemoveNeighborMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
-    pub new_password_sub: Recipient<NewPasswordMessage>,
     pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "NeighborhoodSubs")
     }
 }
@@ -463,7 +626,7 @@ pub struct RouteQueryMessage {
     pub target_component: Component,
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
-    pub hostname_opt: Option<String>,
+    pub host: Host,
 }
 
 impl Message for RouteQueryMessage {
@@ -471,16 +634,13 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn data_indefinite_route_request(
-        hostname_opt: Option<String>,
-        payload_size: usize,
-    ) -> Self {
+    pub fn data_indefinite_route_request(host: Host, payload_size: usize) -> Self {
         Self {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
-            hostname_opt,
+            host,
         }
     }
 }
@@ -492,16 +652,53 @@ pub enum ExpectedService {
     Nothing,
 }
 
+impl ExpectedService {
+    pub fn exit_node_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) => Some(key.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn public_key_opt(&self) -> Option<PublicKey> {
+        match self {
+            ExpectedService::Exit(key, _, _) | ExpectedService::Routing(key, _, _) => {
+                Some(key.clone())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn wallet_opt(&self) -> Option<&Wallet> {
+        match self {
+            ExpectedService::Exit(_, wallet, _) | ExpectedService::Routing(_, wallet, _) => {
+                Some(wallet)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn rate_pack_opt(&self) -> Option<&RatePack> {
+        match self {
+            ExpectedService::Exit(_, _, rate_pack) | ExpectedService::Routing(_, _, rate_pack) => {
+                Some(rate_pack)
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
-    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
+    RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
+    pub host: Host,
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
@@ -536,7 +733,7 @@ pub struct AskAboutDebutGossipMessage {
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct NodeRecordMetadataMessage {
+pub struct UpdateNodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub metadata_change: NRMetadataChange,
 }
@@ -544,6 +741,24 @@ pub struct NodeRecordMetadataMessage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NRMetadataChange {
     AddUnreachableHost { hostname: String },
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct ConfigChangeMsg {
+    pub change: ConfigChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WalletPair {
+    pub consuming_wallet: Wallet,
+    pub earning_wallet: Wallet,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConfigChange {
+    UpdateMinHops(Hops),
+    UpdatePassword(String),
+    UpdateWallets(WalletPair),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -555,8 +770,8 @@ pub enum GossipFailure_0v1 {
     Unknown,
 }
 
-impl fmt::Display for GossipFailure_0v1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+impl Display for GossipFailure_0v1 {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         let msg = match self {
             GossipFailure_0v1::NoNeighbors => "No neighbors for Introduction or Pass",
             GossipFailure_0v1::NoSuitableNeighbors => {
@@ -573,7 +788,8 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops: Hops,
+    pub db_patch_size: u8,
+    pub user_exit_preferences_opt: Option<UserExitPreferences>,
 }
 
 pub struct NeighborhoodTools {
@@ -594,22 +810,27 @@ impl Default for NeighborhoodTools {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::utils::NotifyLaterHandleReal;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
     use masq_lib::utils::{localhost};
     use std::str::FromStr;
+
+    lazy_static! {
+        static ref NB_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(
             DEFAULT_RATE_PACK,
             RatePack {
-                routing_byte_rate: 172_300_000,
-                routing_service_rate: 1_723_000_000,
-                exit_byte_rate: 344_600_000,
-                exit_service_rate: 3_446_000_000,
+                routing_byte_rate: 53_844,
+                routing_service_rate: 53_844,
+                exit_byte_rate: 107_688,
+                exit_service_rate: 107_688,
             }
         );
         assert_eq!(
@@ -642,15 +863,14 @@ mod tests {
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
             route_query: recipient!(recorder, RouteQueryMessage),
-            update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(recorder, UpdateNodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
             remove_neighbor: recipient!(recorder, RemoveNeighborMessage),
+            config_change_msg_sub: recipient!(recorder, ConfigChangeMsg),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
-            new_password_sub: recipient!(recorder, NewPasswordMessage),
             connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 
@@ -694,12 +914,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_mumbai() {
-        let descriptor = "masq://polygon-mumbai:as45cs5c5@1.2.3.4:4444";
+    fn parse_works_for_amoy() {
+        let descriptor = "masq://polygon-amoy:as45cs5c5@1.2.3.4:4444";
 
         let result = NodeDescriptor::parse_url(descriptor).unwrap();
 
-        assert_eq!(result, (Chain::PolyMumbai, "as45cs5c5", "1.2.3.4:4444"))
+        assert_eq!(result, (Chain::PolyAmoy, "as45cs5c5", "1.2.3.4:4444"))
     }
 
     #[test]
@@ -726,7 +946,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'base-mainnet', 'base-sepolia', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -825,13 +1045,13 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'base-mainnet', 'base-sepolia', 'polygon-amoy', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]
     fn from_str_complains_about_bad_base_64() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:bad_key@1.2.3.4:1234;2345",
         ));
 
@@ -843,7 +1063,10 @@ mod tests {
 
     #[test]
     fn from_str_complains_about_blank_public_key() {
-        let result = NodeDescriptor::try_from((main_cryptde(), "masq://dev:@1.2.3.4:1234/2345"));
+        let result = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://dev:@1.2.3.4:1234/2345",
+        ));
 
         assert_eq!(result, Err(String::from("Public key cannot be empty")));
     }
@@ -851,7 +1074,7 @@ mod tests {
     #[test]
     fn from_str_complains_about_bad_node_addr() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:R29vZEtleQ==@BadNodeAddr",
         ));
 
@@ -861,7 +1084,7 @@ mod tests {
     #[test]
     fn from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::try_from((
-            main_cryptde(),
+            NB_CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-ropsten:R29vZEtleQ@1.2.3.4:1234/2345/3456",
         ));
 
@@ -880,7 +1103,10 @@ mod tests {
 
     #[test]
     fn from_str_handles_the_happy_path_without_node_addr() {
-        let result = NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:R29vZEtleQ@:"));
+        let result = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:R29vZEtleQ@:",
+        ));
 
         assert_eq!(
             result.unwrap(),
@@ -922,7 +1148,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
 
@@ -940,7 +1166,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthMainnet, cryptde));
@@ -955,7 +1181,7 @@ mod tests {
 
     #[test]
     fn node_descriptor_to_string_works_for_not_mainnet() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
         let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
@@ -970,7 +1196,7 @@ mod tests {
 
     #[test]
     fn first_part_of_node_descriptor_must_not_be_longer_than_required() {
-        let cryptde: &dyn CryptDE = main_cryptde();
+        let cryptde: &dyn CryptDE = NB_CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
             9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -995,7 +1221,8 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
+        let result =
+            RouteQueryMessage::data_indefinite_route_request(Host::new("booga.com", 1234), 7500);
 
         assert_eq!(
             result,
@@ -1004,19 +1231,23 @@ mod tests {
                 target_component: Component::ProxyClient,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
-                hostname_opt: None
+                host: Host::new("booga.com", 1234),
             }
         );
     }
 
     #[test]
     fn standard_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::Standard(
             NodeAddr::new(&localhost(), &[1234, 2345]),
             vec![one_neighbor.clone(), another_neighbor.clone()],
@@ -1042,12 +1273,16 @@ mod tests {
 
     #[test]
     fn originate_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],
             rate_pack(100),
@@ -1069,12 +1304,16 @@ mod tests {
 
     #[test]
     fn consume_only_mode_results() {
-        let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
-                .unwrap();
-        let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345"))
-                .unwrap();
+        let one_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
+        ))
+        .unwrap();
+        let another_neighbor = NodeDescriptor::try_from((
+            NB_CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-mainnet:AgMEBQ@2.3.4.5:2345",
+        ))
+        .unwrap();
         let subject =
             NeighborhoodMode::ConsumeOnly(vec![one_neighbor.clone(), another_neighbor.clone()]);
 

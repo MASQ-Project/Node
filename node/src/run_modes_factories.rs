@@ -16,8 +16,6 @@ use async_trait::async_trait;
 use masq_lib::command::StdStreams;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::cell::RefCell;
 use tokio::task::{JoinHandle};
 
@@ -69,25 +67,25 @@ pub trait DaemonInitializerFactory {
 
 pub trait DumpConfigRunner {
     fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 #[async_trait(?Send)]
 pub trait ServerInitializer {
     async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
     fn spawn_long_lived_services(&mut self) -> JoinHandle<std::io::Result<()>>;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 pub trait DaemonInitializer {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {
     fn make(&self) -> Box<dyn DumpConfigRunner> {
         Box::new(DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         })
     }
 }
@@ -116,7 +114,7 @@ impl DaemonInitializerFactory for DaemonInitializerFactoryReal {
 impl Default for DIClusteredParams {
     fn default() -> Self {
         Self {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
             logger_initializer_wrapper: Box::new(LoggerInitializerWrapperReal),
             channel_factory: Box::new(ChannelFactoryReal::new()),
             recipients_factory: Box::new(RecipientsFactoryReal::new()),

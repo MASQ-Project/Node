@@ -2,15 +2,36 @@
 
 use crate::blockchains::chains::Chain;
 use crate::test_utils::environment_guard::EnvironmentGuard;
+use serde_derive::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::BaseSepolia;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
+
+#[derive(Serialize)]
+pub struct LogObject {
+    // Strings are all hexadecimal
+    pub removed: bool,
+    #[serde(rename = "logIndex")]
+    pub log_index: Option<String>,
+    #[serde(rename = "transactionIndex")]
+    pub transaction_index: Option<String>,
+    #[serde(rename = "transactionHash")]
+    pub transaction_hash: Option<String>,
+    #[serde(rename = "blockHash")]
+    pub block_hash: Option<String>,
+    #[serde(rename = "blockNumber")]
+    pub block_number: Option<String>,
+    pub address: String,
+    pub data: String,
+    pub topics: Vec<String>,
+}
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
     let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
@@ -23,19 +44,43 @@ pub fn ensure_node_home_directory_does_not_exist(module: &str, name: &str) -> Pa
     home_dir
 }
 
+pub fn recreate_data_dir(home_dir: &Path) -> PathBuf {
+    let _ = fs::remove_dir_all(home_dir);
+    let _ = fs::create_dir_all(home_dir);
+    home_dir.to_path_buf()
+}
+
 pub fn ensure_node_home_directory_exists(module: &str, name: &str) -> PathBuf {
     let home_dir = node_home_directory(module, name);
-    let _ = fs::remove_dir_all(&home_dir);
-    let _ = fs::create_dir_all(&home_dir);
+    let _ = recreate_data_dir(&home_dir);
     home_dir
 }
 
+pub fn open_all_file_permissions(dir: PathBuf) {
+    let _ = Command::new("chmod")
+        .args(&["-R", "777", dir.to_str().unwrap()])
+        .output()
+        .expect("Couldn't chmod 777 files in directory");
+}
+
 pub fn is_running_under_github_actions() -> bool {
-    if let Ok(value) = std::env::var("GITHUB_ACTIONS") {
-        &value == "true"
+    is_env_variable_set("GITHUB_ACTIONS", "true")
+}
+
+pub fn is_test_generated_data_allowed_to_escape_project_dir() -> bool {
+    is_env_variable_set("ALLOW_TEST_DATA_ESCAPE_PROJECT_DIR", "true")
+}
+
+fn is_env_variable_set(var_name: &str, searched_value: &str) -> bool {
+    if let Ok(value) = std::env::var(var_name) {
+        value == searched_value
     } else {
         false
     }
+}
+
+pub trait UrlHolder {
+    fn url(&self) -> String;
 }
 
 #[derive(PartialEq, Eq)]
@@ -89,7 +134,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(TEST_DEFAULT_CHAIN, Chain::EthRopsten);
+        assert_eq!(TEST_DEFAULT_CHAIN, Chain::BaseSepolia);
         assert_eq!(TEST_DEFAULT_MULTINODE_CHAIN, Chain::Dev);
         assert_eq!(BASE_TEST_DIR, "generated/test");
     }

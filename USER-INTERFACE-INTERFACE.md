@@ -358,8 +358,8 @@ Another reason the secrets might be missing is that there are not yet any secret
         "exitServiceRate: <number>"
     },
     "scanIntervals": {
-        "pendingPayableSec": <number>,
         "payableSec": <number>,
+        "pendingPayableSec": <number>,
         "receivableSec": <number>
     },
 }
@@ -453,19 +453,20 @@ database password. If you want to know whether the password you have is the corr
 
 * `scanIntervals`: These three intervals describe the length of three different scan cycles running automatically in the
   background since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete
-  3-hop route. Each parameter can be set independently, but by default are all the same which currently is most desirable
-  for the consistency of service payments to and from your Node. Technically, there doesn't have to be any lower limit 
-  for the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
+  3-hop route. Each parameter can be set independently. Technically, there doesn't have to be any lower limit for 
+* the minimum of time you can set; two scans of the same sort would never run at the same time but the next one is
   always scheduled not earlier than the end of the previous one. These are ever present values, no matter if the user's
   set any value, because defaults are prepared.
 
-* `pendingPayableSec`: Amount of seconds between two sequential cycles of scanning for payments that are marked as currently
-  pending; the payments were sent to pay our debts, the payable. The purpose of this process is to confirm the status of
-  the pending payment; either the payment transaction was written on blockchain as successful or failed.
-
-* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts of that meet
+* `payableSec`: Amount of seconds between two sequential cycles of scanning aimed to find payable accounts that meet
   the criteria set by the Payment Thresholds; these accounts are tracked on behalf of our creditors. If they meet the 
   Payment Threshold criteria, our Node will send a debt payment transaction to the creditor in question.
+
+* `pendingPayableSec`: The time elapsed since the last payable transaction was processed. This scan operates 
+  on an irregular schedule and is triggered after new transactions are sent or when failed transactions need  
+  to be replaced. The scanner monitors pending transactions and verifies their blockchain status, determining whether 
+  each payment was successfully recorded or failed. Any failed transaction is automatically resubmitted as soon 
+  as the failure is detected.
 
 * `receivableSec`: Amount of seconds between two sequential cycles of scanning for payments on the blockchain that have
   been sent by our creditors to us, which are credited against receivables recorded for services provided.
@@ -512,7 +513,7 @@ There are following three connection stages:
 
 1. NotConnected: No external neighbor is connected to us.
 2. ConnectedToNeighbor: External node(s) are connected to us.
-3. ThreeHopsRouteFound: You can relay data over the network.
+3. RouteFound: You can relay data over the network.
 
 The Node can only be on one of these connection stages during any moment of the Node's lifetime.
 
@@ -589,6 +590,75 @@ If the Node has a Node descriptor, it's returned in this message. If the Node ha
 descriptor (for example, if it's still waiting on the router to get a public IP address) or will never have a
 Node descriptor (for example, if its neighborhood mode is not Standard), the `nodeDescriptorOpt`
 field will be null or absent.
+
+#### `exit-location`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitLocations": [
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ],  
+    "showCountries": <boolean>
+}
+```
+##### Description:
+This command requests information about the countries available for exit in our neighborhood and allows us to set up the 
+desired locations with their priority. The priority provides the node's perspective on how important a particular country 
+is for our preferences.
+
+This command can be used in two ways which can't be combined:
+1. If we use the command with showCountries set to true.
+2. If we want to set an exit location.
+
+In case 1. it retrieves information about the available countries in our neighborhood. Other parameters are 
+ignored.
+
+In case 2. we must set showCountries to false and then configure fallbackRouting and exitLocations with our preferences.
+
+The `fallbackRouting` parameter is defaulted as `false`, if not provided. Determines whether we want to block exit for a particular 
+country. If parameter is `false` and requested country is no longer available, the route to exit will fail during construction. 
+If is set to `true`, we can exit through any available country if none of our specified exitLocations are accessible.
+
+Priorities are used to determine the preferred exit countries. Priority 1 is the highest, while higher numbers indicate 
+lower priority. For example, if we specify DE with priority 1 and FR with priority 2, then an exit through France will 
+only be used if a German exit is unavailable or significantly more expensive.
+
+#### `exit-location`
+##### Direction: Response
+##### Correspondent: UI
+##### Layout:
+
+```
+"payload": {
+    "fallbackRouting": <boolean>,
+    "exitCountrySelection": <[
+            {
+                "countryCodes": [string, ..],
+                "priority": <positive integer> 
+            },
+        ]>,
+    "missingCountries": <[string, ..]>
+    "exitCountries": <optional[string, ..]>
+}
+```
+##### Description:
+In response, the Node sends a payload to the UI that contains either the Exit Location settings (which may include missing 
+countries) or a list of exit countries.
+
+Exit Location settings consist of fallbackRouting, exitCountrySelection, and missingCountries, where:
+1. fallbackRouting is a boolean representing the user's choice to enable or disable fallback routing within the neighborhood. 
+2. exitCountrySelection is an array of objects, where each object represents a set of country codes along with their assigned priority. 
+3. missingCountries is an array of strings representing a list of countries that are currently unavailable in the Node's Neighborhood Database.
+
+Exit Countries (or exitCountries) is an optional array containing ISO country code strings. These represent the countries 
+currently available in the Node's Neighborhood Database. The user can select from these countries to configure the Exit 
+Location settings.
 
 #### `financials`
 ##### Direction: Request
@@ -1095,6 +1165,18 @@ even for parameters whose values are natively of other types.
 ##### Description:
 If the value of the respective parameter was successfully changed, this is a simple acknowledgment that the change is complete.
 
+The following commands can be configured using the `setConfiguration`:
+
+
+| Name             | Parameter       | Possible Values  |
+|------------------|-----------------|------------------|
+| Gas Price        | `--gas-price`   | > 0              |
+| Start Block      | `--start-block` | > 0              |
+| Min Hops         | `--min-hops`    | [1, 6]           |
+
+
+Note: The descriptions for the above commands can be found [here](#permitted-names).
+
 #### `setup`
 ##### Direction: Request
 ##### Correspondent: Daemon
@@ -1131,10 +1213,11 @@ be cleared.
 * `db-password` - Password to unlock the sensitive values in the database.
 * `dns-servers` - Comma-separated list of DNS servers to use.
 * `earning-wallet` - Wallet into which earnings should be deposited.
-* `gas-price` - Transaction fee to offer on the blockchain.
+* `gas-price` - The fee per unit of computational effort in blockchain transactions, measured in gwei.
 * `ip` - The public IP address of the Node.
 * `log-level` - The lowest level of logs that should be recorded. `off`, `error`, `warn`, `info`, `debug`, `trace`
 * `mapping-protocol` - The management protocol to try first with the router. `pcp`, `pmp`, `igdp`
+* `min-hops`: The minimum number of hops required for the package to reach the Exit Node.
 * `neighborhood-mode` - `zero-hop`, `originate-only`, `consume-only`, `standard`
 * `neighbors` - Comma-separated list of Node descriptors for neighbors to contact on startup
 * `real-user` - Non-Windows platforms only, only where required: <uid>:<gid>:<home directory>

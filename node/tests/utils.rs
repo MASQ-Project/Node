@@ -3,12 +3,14 @@
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::{add_masq_and_chain_directories, localhost};
-use node_lib::database::connection_wrapper::ConnectionWrapper;
+use masq_lib::test_utils::utils::{
+    ensure_node_home_directory_exists, node_home_directory, recreate_data_dir,
+};
+use masq_lib::utils::{add_masq_and_chain_directories, localhost, running_test};
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
+use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::collections::hash_map::Entry;
@@ -274,6 +276,8 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_exit(&mut self) -> Option<Output> {
+        // TODO Put the body of this function in a background thread and wait on the thread for a few
+        // seconds. If the thread doesn't terminate, leak the thread and return None.
         let child_opt = self.child.take();
         let output_opt = self.output.take();
         match (child_opt, output_opt) {
@@ -358,10 +362,15 @@ impl MASQNode {
         ensure_start: bool,
         command_getter: F,
     ) -> MASQNode {
-        let data_dir = if sterile_database {
-            ensure_node_home_directory_exists("integration", test_name)
-        } else {
-            node_home_directory("integration", test_name)
+        running_test();
+        let data_dir = match (
+            sterile_database,
+            Self::data_directory_from_config_opt(&config_opt),
+        ) {
+            (true, None) => ensure_node_home_directory_exists("integration", test_name),
+            (false, None) => node_home_directory("integration", test_name),
+            (false, Some(conf_data_dir)) => PathBuf::from(conf_data_dir),
+            (true, Some(data_dir)) => recreate_data_dir(&PathBuf::from(data_dir)),
         };
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
@@ -485,6 +494,10 @@ impl MASQNode {
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
             .pair("--log-level", "trace")
+            .pair(
+                "--blockchain-service-url",
+                "https://nonexistentblockchainservice.com",
+            )
             .args
     }
 
@@ -636,6 +649,13 @@ impl MASQNode {
                 None => DEFAULT_UI_PORT,
                 Some(ui_port_string) => ui_port_string.parse::<u16>().unwrap(),
             },
+        }
+    }
+
+    fn data_directory_from_config_opt(config_opt: &Option<CommandConfig>) -> Option<String> {
+        match config_opt {
+            None => None,
+            Some(config) => config.value_of("--data-directory"),
         }
     }
 }

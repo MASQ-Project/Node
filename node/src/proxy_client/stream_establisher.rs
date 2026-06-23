@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::proxy_client::stream_handler_pool::StreamSenders;
 use crate::proxy_client::stream_reader::StreamReader;
 use crate::proxy_client::stream_writer::StreamWriter;
 use crate::sub_lib::channel_wrappers::{
@@ -14,15 +15,15 @@ use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use actix::Recipient;
-use crossbeam_channel::Sender;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use masq_lib::logger::Logger;
 use std::io;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 
 pub struct StreamEstablisher {
-    pub cryptde: &'static dyn CryptDE,
-    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    pub cryptde: Box<dyn CryptDE>,
+    pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub stream_connector: Box<dyn StreamConnector>,
     pub proxy_client_sub: Recipient<InboundServerData>,
@@ -33,7 +34,7 @@ pub struct StreamEstablisher {
 impl Clone for StreamEstablisher {
     fn clone(&self) -> Self {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -49,19 +50,21 @@ impl StreamEstablisher {
         &mut self,
         payload: &ClientRequestPayload_0v1,
         ip_addrs: Vec<IpAddr>,
-        target_hostname: String,
+        target_hostname: &str,
     ) -> io::Result<Box<dyn SenderWrapper<SequencedPacket>>> {
         let connection_info = self.stream_connector.connect_one(
             ip_addrs,
-            &target_hostname,
+            target_hostname,
             payload.target_port,
             &self.logger,
         )?;
+        let (shutdown_signal_tx, shutdown_signal_rx) = unbounded();
 
         self.spawn_stream_reader(
             &payload.clone(),
             connection_info.reader,
             connection_info.peer_addr,
+            shutdown_signal_rx,
         );
 
         let (tx_to_write, rx_to_write) = self.channel_factory.make(connection_info.peer_addr);
@@ -72,6 +75,11 @@ impl StreamEstablisher {
             payload.stream_key,
         );
         tokio::spawn(stream_writer.future());
+
+        let stream_senders = StreamSenders {
+            writer_data: tx_to_write.clone(),
+            reader_shutdown_tx: shutdown_signal_tx,
+        };
 
         self.stream_adder_tx
             .send((payload.stream_key, tx_to_write.dup()))
@@ -84,12 +92,14 @@ impl StreamEstablisher {
         payload: &ClientRequestPayload_0v1,
         read_stream: Box<dyn ReadHalfWrapper>,
         peer_addr: SocketAddr,
+        shutdown_signal: Receiver<()>,
     ) {
         let stream_reader = StreamReader::new(
             payload.stream_key,
             self.proxy_client_sub.clone(),
             read_stream,
             self.stream_killer_tx.clone(),
+            shutdown_signal,
             peer_addr,
         );
         debug!(self.logger, "Spawning StreamReader for {}", peer_addr);
@@ -102,8 +112,8 @@ pub trait StreamEstablisherFactory: Send {
 }
 
 pub struct StreamEstablisherFactoryReal {
-    pub cryptde: &'static dyn CryptDE,
-    pub stream_adder_tx: Sender<(StreamKey, Box<dyn SenderWrapper<SequencedPacket>>)>,
+    pub cryptde: Box<dyn CryptDE>,
+    pub stream_adder_tx: Sender<(StreamKey, StreamSenders)>,
     pub stream_killer_tx: Sender<(StreamKey, u64)>,
     pub proxy_client_subs: ProxyClientSubs,
     pub logger: Logger,
@@ -112,7 +122,7 @@ pub struct StreamEstablisherFactoryReal {
 impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
     fn make(&self) -> StreamEstablisher {
         StreamEstablisher {
-            cryptde: self.cryptde,
+            cryptde: self.cryptde.dup(),
             stream_adder_tx: self.stream_adder_tx.clone(),
             stream_killer_tx: self.stream_killer_tx.clone(),
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -126,6 +136,7 @@ impl StreamEstablisherFactory for StreamEstablisherFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
@@ -155,7 +166,7 @@ mod tests {
         );
 
         let subject = StreamEstablisher {
-            cryptde: main_cryptde(),
+            cryptde: CRYPTDE_PAIR.main.dup(),
             stream_adder_tx,
             stream_killer_tx,
             stream_connector: Box::new(StreamConnectorMock::new()), // only used in "establish_stream"
@@ -165,20 +176,21 @@ mod tests {
         };
         subject.spawn_stream_reader(
             &ClientRequestPayload_0v1 {
-                stream_key: make_meaningless_stream_key(),
+                stream_key: stream_key_inner,
                 sequenced_packet: SequencedPacket {
                     data: vec![],
                     sequence_number: 0,
                     last_data: false,
                 },
-                target_hostname: Some("blah".to_string()),
+                target_hostname: "blah".to_string(),
                 target_port: 0,
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: subject.cryptde.public_key().clone(),
             },
             read_stream,
             SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-        );
+        unbounded().1,
+            );
 
         let _ = poll_until(|| proxy_client_recording_arc.lock().unwrap().len() >= 1).await;
         let proxy_client_recording = proxy_client_recording_arc.lock().unwrap();
@@ -189,7 +201,7 @@ mod tests {
         assert_eq!(
             record,
             InboundServerData {
-                stream_key: make_meaningless_stream_key(),
+                stream_key,
                 last_data: false,
                 sequence_number: 0,
                 source: SocketAddr::from_str("1.2.3.4:5678").unwrap(),

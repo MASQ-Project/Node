@@ -3,22 +3,28 @@ use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::WEIS_IN_GWEI;
-use masq_lib::utils::{derivation_path, NeighborhoodMode};
+use masq_lib::messages::{ScanType, ToMessageBody, UiScanRequest};
+use masq_lib::test_utils::utils::UrlHolder;
+use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::masq_node::MASQNode;
+use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, NodeStartupConfig, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{
-    node_chain_specific_data_directory, open_all_file_permissions, UrlHolder,
+    node_chain_specific_data_directory, open_all_file_permissions,
 };
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
-use node_lib::blockchain::blockchain_interface::{
-    BlockchainInterface, BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+use node_lib::accountant::db_access_objects::sent_payable_dao::{
+    RetrieveCondition, SentPayableDao, SentPayableDaoReal,
 };
+use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
+use node_lib::blockchain::blockchain_interface::blockchain_interface_web3::{
+    BlockchainInterfaceWeb3, REQUESTS_IN_PARALLEL,
+};
+use node_lib::blockchain::blockchain_interface::BlockchainInterface;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
@@ -37,17 +43,14 @@ use web3::Web3;
 
 #[test]
 fn verify_bill_payment() {
-    let mut cluster = match MASQNodeCluster::start() {
-        Ok(cluster) => cluster,
-        Err(e) => panic!("{}", e),
-    };
+    let mut cluster = MASQNodeCluster::start().unwrap();
     let blockchain_server = BlockchainServer {
         name: "ganache-cli",
     };
     blockchain_server.start();
     blockchain_server.wait_until_ready();
     let url = blockchain_server.url().to_string();
-    let (_event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
+    let (event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
@@ -59,12 +62,11 @@ fn verify_bill_payment() {
         "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
         contract_addr
     );
-    let blockchain_interface =
-        BlockchainInterfaceWeb3::new(http, _event_loop_handle, cluster.chain);
+    let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99998043204000000000",
+        "99998381140000000000",
         "472000000000000000000000000",
     );
     let payment_thresholds = PaymentThresholds {
@@ -189,7 +191,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99998043204000000000",
+        "99998381140000000000",
         "472000000000000000000000000",
     );
 
@@ -226,7 +228,7 @@ fn verify_bill_payment() {
     }
 
     let now = Instant::now();
-    while !consuming_payable_dao.non_pending_payables().is_empty()
+    while !consuming_payable_dao.retrieve_payables(None).is_empty()
         && now.elapsed() < Duration::from_secs(10)
     {
         thread::sleep(Duration::from_millis(400));
@@ -235,7 +237,7 @@ fn verify_bill_payment() {
     assert_balances(
         &contract_owner_wallet,
         &blockchain_interface,
-        "99997886466000000000",
+        "99994287232000000000",
         "471999999700000000000000000",
     );
 
@@ -309,33 +311,216 @@ fn verify_bill_payment() {
     });
 }
 
+#[test]
+fn verify_pending_payables() {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let blockchain_server = BlockchainServer {
+        name: "ganache-cli",
+    };
+    blockchain_server.start();
+    blockchain_server.wait_until_ready();
+    let url = blockchain_server.url().to_string();
+    let (event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
+    let web3 = Web3::new(http.clone());
+    let deriv_path = derivation_path(0, 0);
+    let seed = make_seed();
+    let (contract_owner_wallet, _) = make_node_wallet(&seed, &deriv_path);
+    let contract_addr = deploy_smart_contract(&contract_owner_wallet, &web3, cluster.chain);
+    assert_eq!(
+        contract_addr,
+        cluster.chain.rec().contract,
+        "Ganache is not as predictable as we thought: Update blockchain_interface::MULTINODE_CONTRACT_ADDRESS with {:?}",
+        contract_addr
+    );
+    let blockchain_interface = BlockchainInterfaceWeb3::new(http, event_loop_handle, cluster.chain);
+    assert_balances(
+        &contract_owner_wallet,
+        &blockchain_interface,
+        "99998381140000000000",
+        "472000000000000000000000000",
+    );
+    let payment_thresholds = PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 86_400,
+        maturity_threshold_sec: 86_400,
+        permanent_debt_allowed_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
+    };
+    let ui_port = find_free_port();
+    let (node_wallet, node_secret) = make_node_wallet(&seed, deriv_path.as_str());
+    let consuming_config = NodeStartupConfigBuilder::standard()
+        .blockchain_service_url(blockchain_server.url())
+        .chain(Chain::Dev)
+        .payment_thresholds(payment_thresholds)
+        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(node_secret))
+        .earning_wallet_info(EarningWalletInfo::Address(format!(
+            "{}",
+            node_wallet.clone()
+        )))
+        // Important
+        .scans(false)
+        .ui_port(ui_port)
+        .build();
+    let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
+    let consuming_node_path = node_chain_specific_data_directory(&consuming_node_name);
+    let connect_to_consuming_node_db = || {
+        DbInitializerReal::default()
+            .initialize(
+                Path::new(&consuming_node_path),
+                make_init_config(cluster.chain),
+            )
+            .unwrap()
+    };
+    let consuming_payable_dao = PayableDaoReal::new(connect_to_consuming_node_db());
+    let consuming_sent_payable_dao = SentPayableDaoReal::new(connect_to_consuming_node_db());
+
+    open_all_file_permissions(consuming_node_path.clone().into());
+    assert_eq!(
+        format!("{}", &contract_owner_wallet),
+        "0x5a4d5df91d0124dec73dbd112f82d6077ccab47d"
+    );
+
+    let (serving_node_1_wallet, _) = make_node_wallet(&seed, derivation_path(0, 1).as_str());
+    let (serving_node_2_wallet, _) = make_node_wallet(&seed, derivation_path(0, 2).as_str());
+    let (serving_node_3_wallet, _) = make_node_wallet(&seed, derivation_path(0, 3).as_str());
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
+    let now = SystemTime::now();
+    consuming_payable_dao
+        .more_money_payable(now, &serving_node_1_wallet, amount)
+        .unwrap();
+    consuming_payable_dao
+        .more_money_payable(now, &serving_node_2_wallet, amount)
+        .unwrap();
+    consuming_payable_dao
+        .more_money_payable(now, &serving_node_3_wallet, amount)
+        .unwrap();
+
+    expire_payables(consuming_node_path.into());
+
+    let real_consuming_node =
+        cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
+    let ui_client = real_consuming_node.make_ui(ui_port);
+    ui_client.send_request(
+        UiScanRequest {
+            scan_type: ScanType::Payables,
+        }
+        .tmb(0),
+    );
+
+    let now = Instant::now();
+    while consuming_sent_payable_dao
+        .retrieve_txs(Some(RetrieveCondition::IsPending))
+        .is_empty()
+        && now.elapsed() < Duration::from_secs(10)
+    {
+        thread::sleep(Duration::from_millis(400));
+    }
+
+    assert_balances(
+        &contract_owner_wallet,
+        &blockchain_interface,
+        "99994287232000000000",
+        "471999999700000000000000000",
+    );
+    assert_balances(
+        &serving_node_1_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        amount.to_string().as_str(),
+    );
+    assert_balances(
+        &serving_node_2_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        amount.to_string().as_str(),
+    );
+    assert_balances(
+        &serving_node_3_wallet,
+        &blockchain_interface,
+        "100000000000000000000",
+        amount.to_string().as_str(),
+    );
+    ui_client.send_request(
+        UiScanRequest {
+            scan_type: ScanType::PendingPayables,
+        }
+        .tmb(0),
+    );
+
+    let now = Instant::now();
+    loop {
+        if !consuming_sent_payable_dao
+            .retrieve_txs(Some(RetrieveCondition::IsPending))
+            .is_empty()
+        {
+            if now.elapsed() < Duration::from_secs(5) {
+                thread::sleep(Duration::from_millis(400))
+            } else {
+                panic!("Pending payables still aren't resolved even after 5 seconds")
+            }
+        } else {
+            break;
+        }
+    }
+    MASQNodeUtils::assert_node_wrote_log_containing(
+        real_consuming_node.name(),
+        "Found 3 pending payables and 0 suspected failures to process",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::assert_node_wrote_log_containing(
+        real_consuming_node.name(),
+        "Scan results: Successful: 3, Pending: 0, Failed: 0",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::assert_node_wrote_log_containing(
+        real_consuming_node.name(),
+        "Tx 0x89acc46da0df6ef8c6f5574307ae237a812bd28af524a62131013b5e19ca3e26 confirmed",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::assert_node_wrote_log_containing(
+        real_consuming_node.name(),
+        "Tx 0xae0bf6400f0b9950a1d456e488549414d118714b81a39233b811b629cf41399b confirmed",
+        Duration::from_secs(5),
+    );
+    MASQNodeUtils::assert_node_wrote_log_containing(
+        real_consuming_node.name(),
+        "Tx 0xecab1c73ca90ebcb073526e28f1f8d4678704b74d1e0209779ddeefc8fb861f5 confirmed",
+        Duration::from_secs(5),
+    );
+}
+
 fn make_init_config(chain: Chain) -> DbInitializationConfig {
     DbInitializationConfig::create_or_migrate(ExternalData::new(
         chain,
-        NeighborhoodMode::Standard,
+        NeighborhoodModeLight::Standard,
         None,
     ))
 }
 
 fn assert_balances(
     wallet: &Wallet,
-    blockchain_interface: &BlockchainInterfaceWeb3<Http>,
+    blockchain_interface: &BlockchainInterfaceWeb3,
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
     let eth_balance = blockchain_interface
-        .get_transaction_fee_balance(&wallet)
+        .lower_interface()
+        .get_transaction_fee_balance(wallet.address())
+        .wait()
         .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),
         String::from(expected_eth_balance),
-        "Actual EthBalance {} doesn't much with expected {}",
+        "Actual EthBalance {} doesn't match with expected {}",
         eth_balance,
         expected_eth_balance
     );
     let token_balance = blockchain_interface
-        .get_token_balance(&wallet)
-        .unwrap_or_else(|_| panic!("Failed to retrieve token balance for {}", wallet));
+        .lower_interface()
+        .get_service_fee_balance(wallet.address())
+        .wait()
+        .unwrap_or_else(|_| panic!("Failed to retrieve masq balance for {}", wallet));
     assert_eq!(
         token_balance,
         web3::types::U256::from_dec_str(expected_token_balance).unwrap(),

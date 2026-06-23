@@ -116,11 +116,11 @@ pub enum DispatcherError {
 #[rtype(result = "()")]
 pub struct InboundClientData {
     pub timestamp: SystemTime,
-    pub peer_addr: SocketAddr,
-    pub reception_port: Option<u16>,
+    pub client_addr: SocketAddr,
+    pub reception_port_opt: Option<u16>,
     pub last_data: bool,
     pub is_clandestine: bool,
-    pub sequence_number: Option<u64>,
+    pub sequence_number_opt: Option<u64>,
     pub data: Vec<u8>,
 }
 
@@ -131,7 +131,7 @@ impl Debug for InboundClientData {
             Err(_) => self.data.hex_dump().to_string(),
         };
         write!(f, "InboundClientData {{ peer_addr: {:?}, reception_port: {:?}, last_data: {}, sequence_number: {:?}, {} bytes of data: {} }}",
-               self.peer_addr, self.reception_port, self.last_data, self.sequence_number, self.data.len(), data_string)
+               self.client_addr, self.reception_port_opt, self.last_data, self.sequence_number_opt, self.data.len(), data_string)
     }
 }
 
@@ -139,11 +139,11 @@ impl InboundClientData {
     pub fn clone_but_data(&self) -> InboundClientData {
         InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: self.peer_addr,
-            reception_port: self.reception_port,
+            client_addr: self.client_addr,
+            reception_port_opt: self.reception_port_opt,
             last_data: self.last_data,
             is_clandestine: self.is_clandestine,
-            sequence_number: self.sequence_number,
+            sequence_number_opt: self.sequence_number_opt,
             data: vec![],
         }
     }
@@ -275,11 +275,11 @@ mod tests {
     fn inbound_client_data_is_identifiable_as_a_connect() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"CONNECT server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -290,11 +290,11 @@ mod tests {
     fn inbound_client_data_is_not_connect() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"GET server.example.com:80 HTTP/1.1\r\nHost: server.example.com:80\r\nProxy-Authorization: basic aGVsbG86d29ybGQ=\r\n\r\n".to_vec(),
         };
 
@@ -305,11 +305,11 @@ mod tests {
     fn inbound_client_data_not_connect_if_no_space_after_method() {
         let subject = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
-            reception_port: None,
+            client_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"CONNECTX".to_vec(),
         };
 

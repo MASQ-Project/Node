@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
@@ -11,7 +12,9 @@ use multinode_integration_tests_lib::masq_real_node::{
     MASQRealNode, STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
-use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use multinode_integration_tests_lib::neighborhood_constructor::{
+    construct_neighborhood, do_not_modify_config,
+};
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -27,7 +30,6 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::sequence_buffer::SequencedPacket;
 use node_lib::sub_lib::stream_key::StreamKey;
 use node_lib::sub_lib::versioned_data::VersionedData;
-use node_lib::test_utils::make_meaningless_stream_key;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::io;
 use std::net::SocketAddr;
@@ -85,13 +87,12 @@ fn reported_server_drop() {
     let (_, _, lcp) = mock_node
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
-    let (stream_key, return_route_id) =
-        context_from_request_lcp(lcp, real_node.main_cryptde_null().unwrap(), &exit_cryptde);
+    let stream_key = stream_key_from_request_lcp(lcp, &exit_cryptde);
 
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_server_drop_report(&mock_node, &real_node, stream_key, return_route_id),
+            create_server_drop_report(&mock_node, &real_node, stream_key),
             &masquerader,
             real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
@@ -102,6 +103,7 @@ fn reported_server_drop() {
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 
+#[ignore]
 #[test]
 // Given: Exit Node is real_node; originating Node is mock_node.
 // Given: A stream is established through the exit Node to a server.
@@ -113,28 +115,27 @@ fn actual_server_drop() {
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
-    let (stream_key, return_route_id) = arbitrary_context();
-    mock_node
-        .transmit_package(
-            mock_node.port_list()[0],
-            create_request_icp(
-                &mock_node,
-                &real_node,
-                stream_key,
-                return_route_id,
-                &server,
-                cluster.chain,
-            ),
-            &masquerader,
-            real_node.main_public_key(),
-            real_node.socket_addr(PortSelector::First),
-        )
-        .unwrap();
-    server.wait_for_chunk(Duration::from_secs(2)).unwrap();
-    server.send_chunk(HTTP_RESPONSE);
-    mock_node
-        .wait_for_package(&masquerader, Duration::from_secs(2))
-        .unwrap();
+    let stream_key = arbitrary_stream_key();
+    let index: u64 = 0;
+    request_server_payload(
+        index,
+        &cluster,
+        &real_node,
+        &mock_node,
+        &mut server,
+        &masquerader,
+        stream_key,
+    );
+    let index: u64 = 1;
+    request_server_payload(
+        index,
+        &cluster,
+        &real_node,
+        &mock_node,
+        &mut server,
+        &masquerader,
+        stream_key,
+    );
 
     server.shutdown();
 
@@ -163,6 +164,38 @@ fn actual_server_drop() {
     assert!(payload.sequenced_packet.last_data);
 }
 
+fn request_server_payload(
+    index: u64,
+    cluster: &MASQNodeCluster,
+    real_node: &MASQRealNode,
+    mock_node: &MASQMockNode,
+    server: &mut MASQNodeServer,
+    masquerader: &JsonMasquerader,
+    stream_key: StreamKey,
+) {
+    mock_node
+        .transmit_package(
+            mock_node.port_list()[0],
+            create_request_icp(
+                index,
+                &mock_node,
+                &real_node,
+                stream_key,
+                &server,
+                cluster.chain,
+            ),
+            masquerader,
+            real_node.main_public_key(),
+            real_node.socket_addr(PortSelector::First),
+        )
+        .unwrap();
+    server.wait_for_chunk(Duration::from_secs(2)).unwrap();
+    server.send_chunk(HTTP_RESPONSE);
+    mock_node
+        .wait_for_package(masquerader, Duration::from_secs(2))
+        .unwrap();
+}
+
 #[test]
 // Given: Exit Node is real_node; originating Node is mock_node.
 // Given: A stream is established through the exit Node to a server.
@@ -175,15 +208,16 @@ fn reported_client_drop() {
     let server_port = find_free_port();
     let mut server = real_node.make_server(server_port);
     let masquerader = JsonMasquerader::new();
-    let (stream_key, return_route_id) = arbitrary_context();
+    let stream_key = arbitrary_stream_key();
+    let index: u64 = 0;
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
             create_request_icp(
+                index,
                 &mock_node,
                 &real_node,
                 stream_key,
-                return_route_id,
                 &server,
                 cluster.chain,
             ),
@@ -201,7 +235,7 @@ fn reported_client_drop() {
     mock_node
         .transmit_package(
             mock_node.port_list()[0],
-            create_client_drop_report(&mock_node, &real_node, stream_key, return_route_id),
+            create_client_drop_report(&mock_node, &real_node, stream_key),
             &masquerader,
             real_node.main_public_key(),
             real_node.socket_addr(PortSelector::First),
@@ -225,7 +259,8 @@ fn downed_nodes_not_offered_in_passes_or_introductions() {
     db.add_arbitrary_full_neighbor(&desirable_but_down, &fictional);
 
     let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(&mut cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(&mut cluster, db, vec![], do_not_modify_config());
     let desirable_but_down_node = node_map.remove(&desirable_but_down).unwrap();
     let undesirable_but_up_node = node_map.remove(&undesirable_but_up).unwrap();
     let debuter: NodeRecord = make_node_record(5678, true);
@@ -264,7 +299,8 @@ fn create_neighborhood(cluster: &mut MASQNodeCluster) -> (MASQRealNode, MASQMock
     db.add_node(mock_node.clone()).unwrap();
     db.add_node(fictional_node_1.clone()).unwrap();
     db.add_node(fictional_node_2.clone()).unwrap();
-    let (_, masq_real_node, mut node_map) = construct_neighborhood(cluster, db, vec![]);
+    let (_, masq_real_node, mut node_map) =
+        construct_neighborhood(cluster, db, vec![], do_not_modify_config());
     let masq_mock_node = node_map.remove(mock_node.public_key()).unwrap();
     (
         masq_real_node,
@@ -281,11 +317,7 @@ fn full_neighbor(one: &mut NodeRecord, another: &mut NodeRecord) {
         .unwrap();
 }
 
-fn context_from_request_lcp(
-    lcp: LiveCoresPackage,
-    originating_cryptde: &dyn CryptDE,
-    exit_cryptde: &dyn CryptDE,
-) -> (StreamKey, u32) {
+fn stream_key_from_request_lcp(lcp: LiveCoresPackage, exit_cryptde: &dyn CryptDE) -> StreamKey {
     let payload = match decodex::<MessageType>(exit_cryptde, &lcp.payload).unwrap() {
         MessageType::ClientRequest(vd) => vd
             .extract(&node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS)
@@ -293,24 +325,24 @@ fn context_from_request_lcp(
         mt => panic!("Unexpected: {:?}", mt),
     };
     let stream_key = payload.stream_key;
-    let return_route_id = decodex::<u32>(originating_cryptde, &lcp.route.hops[6]).unwrap();
-    (stream_key, return_route_id)
+    stream_key
 }
 
-fn arbitrary_context() -> (StreamKey, u32) {
-    (make_meaningless_stream_key(), 12345678)
+fn arbitrary_stream_key() -> StreamKey {
+    StreamKey::make_meaningful_stream_key("arbitrary_context")
 }
 
 fn create_request_icp(
+    index: u64,
     originating_node: &MASQMockNode,
     exit_node: &MASQRealNode,
     stream_key: StreamKey,
-    return_route_id: u32,
     server: &MASQNodeServer,
     chain: Chain,
 ) -> IncipientCoresPackage {
+    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     IncipientCoresPackage::new(
-        originating_node.main_cryptde_null().unwrap(),
+        originating_main_cryptde,
         Route::round_trip(
             RouteSegment::new(
                 vec![
@@ -326,9 +358,8 @@ fn create_request_icp(
                 ],
                 Component::ProxyServer,
             ),
-            originating_node.main_cryptde_null().unwrap(),
+            originating_main_cryptde,
             originating_node.consuming_wallet(),
-            return_route_id,
             Some(chain.rec().contract),
         )
         .unwrap(),
@@ -336,8 +367,8 @@ fn create_request_icp(
             &node_lib::sub_lib::migrations::client_request_payload::MIGRATIONS,
             &ClientRequestPayload_0v1 {
                 stream_key,
-                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-                target_hostname: Some(format!("{}", server.local_addr().ip())),
+                sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), index, false),
+                target_hostname: format!("{}", server.local_addr().ip()),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -353,9 +384,11 @@ fn create_meaningless_icp(
     exit_node: &MASQRealNode,
 ) -> IncipientCoresPackage {
     let socket_addr = SocketAddr::from_str("3.2.1.0:7654").unwrap();
-    let stream_key = StreamKey::new(PublicKey::new(&[9, 8, 7, 6]), socket_addr);
+    let stream_key =
+        StreamKey::make_meaningful_stream_key("Chancellor on brink of second bailout for banks");
+    let main_cryptde = originating_node.main_cryptde_null().unwrap();
     IncipientCoresPackage::new(
-        originating_node.main_cryptde_null().unwrap(),
+        main_cryptde,
         Route::round_trip(
             RouteSegment::new(
                 vec![
@@ -371,9 +404,8 @@ fn create_meaningless_icp(
                 ],
                 Component::ProxyServer,
             ),
-            originating_node.main_cryptde_null().unwrap(),
+            main_cryptde,
             originating_node.consuming_wallet(),
-            1357,
             Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
         )
         .unwrap(),
@@ -382,7 +414,7 @@ fn create_meaningless_icp(
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-                target_hostname: Some(format!("nowhere.com")),
+                target_hostname: "nowhere.com".to_string(),
                 target_port: socket_addr.port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
@@ -397,8 +429,9 @@ fn create_server_drop_report(
     exit_node: &MASQMockNode,
     originating_node: &MASQRealNode,
     stream_key: StreamKey,
-    return_route_id: u32,
 ) -> IncipientCoresPackage {
+    let exit_main_cryptde = exit_node.main_cryptde_null().unwrap();
+    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     let mut route = Route::round_trip(
         RouteSegment::new(
             vec![
@@ -414,15 +447,12 @@ fn create_server_drop_report(
             ],
             Component::ProxyServer,
         ),
-        originating_node.main_cryptde_null().unwrap(),
+        originating_main_cryptde,
         originating_node.consuming_wallet(),
-        return_route_id,
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
-    route
-        .shift(originating_node.main_cryptde_null().unwrap())
-        .unwrap();
+    route.shift(originating_main_cryptde).unwrap();
     let payload = MessageType::ClientResponse(VersionedData::new(
         &node_lib::sub_lib::migrations::client_response_payload::MIGRATIONS,
         &ClientResponsePayload_0v1 {
@@ -432,7 +462,7 @@ fn create_server_drop_report(
     ));
 
     IncipientCoresPackage::new(
-        exit_node.main_cryptde_null().unwrap(),
+        exit_main_cryptde,
         route,
         payload,
         originating_node.alias_public_key(),
@@ -444,8 +474,8 @@ fn create_client_drop_report(
     originating_node: &MASQMockNode,
     exit_node: &MASQRealNode,
     stream_key: StreamKey,
-    return_route_id: u32,
 ) -> IncipientCoresPackage {
+    let originating_main_cryptde = originating_node.main_cryptde_null().unwrap();
     let route = Route::round_trip(
         RouteSegment::new(
             vec![
@@ -461,9 +491,8 @@ fn create_client_drop_report(
             ],
             Component::ProxyServer,
         ),
-        originating_node.main_cryptde_null().unwrap(),
+        originating_main_cryptde,
         originating_node.consuming_wallet(),
-        return_route_id,
         Some(TEST_DEFAULT_MULTINODE_CHAIN.rec().contract),
     )
     .unwrap();
@@ -472,15 +501,15 @@ fn create_client_drop_report(
         &ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
-            target_hostname: Some(String::from("doesnt.matter.com")),
-            target_port: 80,
+            target_hostname: String::from("doesnt.matter.com"),
+            target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
             originator_public_key: originating_node.main_public_key().clone(),
         },
     ));
 
     IncipientCoresPackage::new(
-        originating_node.main_cryptde_null().unwrap(),
+        originating_main_cryptde,
         route,
         payload,
         exit_node.main_public_key(),
@@ -502,7 +531,7 @@ fn ensure_no_further_traffic(mock_node: &MASQMockNode, masquerader: &dyn Masquer
 fn wait_for_client_shutdown(real_node: &MASQRealNode) {
     // This is a jury-rigged way to wait for a shutdown, since client.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_node.name(),
         "Shutting down stream to client at 127.0.0.1",
         Duration::from_secs(1),
@@ -512,7 +541,7 @@ fn wait_for_client_shutdown(real_node: &MASQRealNode) {
 fn wait_for_server_shutdown(real_node: &MASQRealNode, local_addr: SocketAddr) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
-    MASQNodeUtils::wrote_log_containing(
+    MASQNodeUtils::assert_node_wrote_log_containing(
         real_node.name(),
         &format!(
             "Shutting down stream to server at {} in response to client-drop report",

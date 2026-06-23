@@ -26,8 +26,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;
 use serde_json::json;
 use serde_json::{Map, Value};
-#[cfg(test)]
-use std::any::Any;
 use std::path::{Path, PathBuf};
 
 pub struct DumpConfigRunnerReal {
@@ -51,7 +49,7 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 fn write_string(streams: &mut StdStreams, json: String) {
@@ -160,8 +158,9 @@ fn distill_args(
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::bootstrapper::CryptDEPair;
     use crate::database::db_initializer::ExternalData;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -169,11 +168,13 @@ mod tests {
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::node_configurator::DirsWrapperReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+    use crate::sub_lib::accountant;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
     use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
-    use crate::test_utils::{main_cryptde, ArgsBuilder};
+    use crate::test_utils::ArgsBuilder;
+    use lazy_static::lazy_static;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -184,6 +185,10 @@ mod tests {
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {
@@ -199,7 +204,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
@@ -222,6 +227,7 @@ mod tests {
 
     #[test]
     fn dump_config_does_not_migrate_obsolete_database() {
+        let _ = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
@@ -240,7 +246,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
@@ -263,7 +269,7 @@ mod tests {
                 .initialize(
                     &database_path,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
-                        Chain::PolyMainnet,
+                        DEFAULT_CHAIN,
                         NeighborhoodMode::ZeroHop,
                         None,
                     )),
@@ -283,12 +289,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -308,7 +314,7 @@ mod tests {
             });
         let mut args_builder = ArgsBuilder::new()
             .param("--real-user", &format!("123:123:{}", absolute_home_dir.display()))
-            .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
+            .param("--chain", DEFAULT_CHAIN.rec().literal_identifier)
             .opt("--dump-config");
         if let Some(data_dir) = non_default_data_directory_opt {
             args_builder = args_builder.param("--data-directory", data_dir.to_str().unwrap());
@@ -318,9 +324,7 @@ mod tests {
             data_dir_result: Some(PathBuf::from("/home/booga/.local/share".to_string())),
             home_dir_result: Some(PathBuf::from("/home/booga".to_string())),
         }));
-        let subject = DumpConfigRunnerReal {
-            dirs_wrapper: dirs_wrapper,
-        };
+        let subject = DumpConfigRunnerReal { dirs_wrapper };
 
         let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
 
@@ -333,6 +337,7 @@ mod tests {
             .initialize(&database_path, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
+        let chain = DEFAULT_CHAIN;
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
         assert_encrypted_value(
@@ -346,11 +351,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value(
-            "chainName",
-            Chain::PolyMainnet.rec().literal_identifier,
-            &map,
-        );
+        assert_value("chainName", chain.rec().literal_identifier, &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
@@ -359,11 +360,7 @@ mod tests {
         );
         assert_value("neighborhoodMode", "zero-hop", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert_value(
-            "startBlock",
-            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
-            &map,
-        );
+        assert_null("startBlock", &map);
         assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
@@ -375,12 +372,17 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
-        assert!(output.ends_with("\n}\n")) //asserting that there is a blank line at the end
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(chain).to_string(),
+            &map,
+        );
+        assert!(output.ends_with("\n}\n")) // To assert a blank line at the end
     }
 
     #[test]
     fn dump_config_dumps_existing_database_without_password_and_data_dir_specified() {
+        let _ = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_without_password_and_data_dir_specified",
@@ -399,6 +401,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_without_password_and_default_data_dir() {
+        let _ = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_without_password_and_default_data_dir",
@@ -423,6 +426,7 @@ mod tests {
 
     #[test]
     fn dump_config_dumps_existing_database_with_correct_password() {
+        let _ = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
@@ -454,12 +458,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -479,7 +483,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
@@ -510,11 +514,7 @@ mod tests {
         assert_value("pastNeighbors", "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert_value(
-            "startBlock",
-            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
-            &map,
-        );
+        assert_null("startBlock", &map);
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
         let expected_ee_decrypted = Bip39::decrypt_bytes(&expected_ee_entry, "password").unwrap();
         let expected_ee_string = encode_bytes(Some(expected_ee_decrypted)).unwrap().unwrap();
@@ -525,11 +525,16 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(Chain::PolyMainnet).to_string(),
+            &map,
+        );
     }
 
     #[test]
     fn dump_config_dumps_existing_database_with_incorrect_password() {
+        let _ = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
@@ -561,12 +566,12 @@ mod tests {
                 .set_past_neighbors(
                     Some(vec![
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            main_cryptde(),
+                            CRYPTDE_PAIR.main.as_ref(),
                             "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
@@ -586,7 +591,7 @@ mod tests {
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal {
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         };
 
         let _result = subject.go(&mut holder.streams(), args_vec.as_slice()).unwrap();
@@ -600,6 +605,7 @@ mod tests {
             .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
+        let chain = Chain::PolyMainnet;
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
         assert_value("clandestinePort", "3456", &map);
         assert_encrypted_value(
@@ -613,11 +619,7 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value(
-            "chainName",
-            Chain::PolyMainnet.rec().literal_identifier,
-            &map,
-        );
+        assert_value("chainName", chain.rec().literal_identifier, &map);
         assert_value("gasPrice", "1", &map);
         assert_value(
             "pastNeighbors",
@@ -626,11 +628,7 @@ mod tests {
         );
         assert_value("neighborhoodMode", "standard", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
-        assert_value(
-            "startBlock",
-            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
-            &map,
-        );
+        assert_null("startBlock", &map);
         assert_value(
             "exampleEncrypted",
             &dao.get("example_encrypted").unwrap().value_opt.unwrap(),
@@ -642,7 +640,11 @@ mod tests {
             &map,
         );
         assert_value("ratePack", &DEFAULT_RATE_PACK.to_string(), &map);
-        assert_value("scanIntervals", &DEFAULT_SCAN_INTERVALS.to_string(), &map);
+        assert_value(
+            "scanIntervals",
+            &accountant::ScanIntervals::compute_default(chain).to_string(),
+            &map,
+        );
     }
 
     #[test]
@@ -650,7 +652,7 @@ mod tests {
         expected = "Database is corrupt: pastNeighbors byte string 'PlainData { data: [192, 193] }' cannot be interpreted as UTF-8"
     )]
     fn decode_bytes_handles_decode_error_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(&[192, 193]);
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
@@ -659,7 +661,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Database is corrupt: past_neighbors cannot be decoded")]
     fn decode_bytes_handles_utf8_error_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(b"invalid hex");
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
@@ -668,7 +670,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Database is corrupt: past_neighbors contains bad CBOR")]
     fn decode_bytes_handles_bad_cbor_for_past_neighbors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = PlainData::new(b"AABBCC");
 
         let _ = translate_bytes("pastNeighbors", data, cryptde);
@@ -683,6 +685,18 @@ mod tests {
             x => panic!("Expected JSON string; found {:?}", x),
         };
         assert_eq!(actual_value, expected_value);
+    }
+
+    fn assert_null(key: &str, map: &Map<String, Value>) {
+        assert!(map.contains_key(key));
+        let value = map
+            .get(key)
+            .unwrap_or_else(|| panic!("record for {} is missing", key));
+        assert!(
+            value.is_null(),
+            "Expecting {} to be null, but it wasn't",
+            value
+        )
     }
 
     fn assert_encrypted_value(

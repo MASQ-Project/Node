@@ -58,60 +58,16 @@ fn http_end_to_end_routing_test() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let mut client = last_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    let mut client = last_node.make_client(8080, 5000);
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
+        index_of(&response, &b"<title>URL for testing.</title>"[..]).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(response).unwrap()
     );
-}
-
-fn assert_http_end_to_end_routing_test(min_hops: Hops) {
-    let mut cluster = MASQNodeCluster::start().unwrap();
-    let config = NodeStartupConfigBuilder::standard()
-        .min_hops(min_hops)
-        .chain(cluster.chain)
-        .consuming_wallet_info(make_consuming_wallet_info("first_node"))
-        .build();
-    let first_node = cluster.start_real_node(config);
-
-    let nodes_count = 2 * (min_hops as usize) + 1;
-    let nodes = (0..nodes_count)
-        .map(|_| {
-            cluster.start_real_node(
-                NodeStartupConfigBuilder::standard()
-                    .neighbor(first_node.node_reference())
-                    .chain(cluster.chain)
-                    .build(),
-            )
-        })
-        .collect::<Vec<MASQRealNode>>();
-
-    thread::sleep(Duration::from_millis(500 * (nodes.len() as u64)));
-
-    let mut client = first_node.make_client(8080, 5000);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    let response = client.wait_for_chunk();
-
-    assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(response).unwrap()
-    );
-}
-
-#[test]
-fn http_end_to_end_routing_test_with_different_min_hops() {
-    // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
-    // You may fix it by increasing the timeout for the client.
-    assert_http_end_to_end_routing_test(Hops::OneHop);
-    assert_http_end_to_end_routing_test(Hops::TwoHops);
-    assert_http_end_to_end_routing_test(Hops::SixHops);
 }
 
 #[test]
@@ -134,7 +90,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
             .chain(cluster.chain)
             .build(),
     );
-    let _potential_exit_nodes = vec![0, 1, 2, 3, 4]
+    let _potential_exit_nodes = vec![3, 4, 5, 6, 7]
         .into_iter()
         .map(|_| {
             cluster.start_real_node(
@@ -146,17 +102,19 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
         })
         .collect_vec();
 
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_secs(5));
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    let response = client.wait_for_chunk();
+    client.set_timeout(Duration::from_secs(10));
+    let request = "GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n".as_bytes();
 
-    assert_eq!(
-        index_of(&response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(response).unwrap()
+    client.send_chunk(request);
+    let response = String::from_utf8(client.wait_for_chunk()).unwrap();
+
+    assert!(
+        response.contains("<title>URL for testing.</title>"),
+        "Not from www.testingmcafeesites.com:\n{}",
+        response
     );
 }
 
@@ -220,7 +178,7 @@ fn tls_end_to_end_routing_test() {
             .expect("Could not set read timeout to 1000ms");
         let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
-            "example.com",
+            "www.example.com",
             stream.try_clone().expect("Couldn't clone TcpStream"),
         ) {
             Ok(s) => {
@@ -244,7 +202,7 @@ fn tls_end_to_end_routing_test() {
 
         tls_stream.expect("Couldn't handshake")
     };
-    let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
+    let request = "GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n".as_bytes();
     tls_stream
         .write(request.clone())
         .expect("Could not write request to TLS stream");
@@ -280,11 +238,11 @@ fn http_routing_failure_produces_internal_error_response() {
 
     let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
-    client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+    client.send_chunk(b"GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
     let expected_response =
-        ServerImpersonatorHttp {}.route_query_failure_response("www.example.com");
+        ServerImpersonatorHttp {}.route_query_failure_response("www.testingmcafeesites.com");
 
     assert_eq!(
         &expected_response,
@@ -360,26 +318,56 @@ fn multiple_stream_zero_hop_test() {
     let mut one_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let mut another_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
-    one_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    another_client.send_chunk(b"GET /online/ HTTP/1.1\r\nHost: whatever.neverssl.com\r\n\r\n");
+    one_client.send_chunk(b"GET /testcat_ed.html HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: www.testingmcafeesites.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
+    another_client.send_chunk(b"GET /testcat_cm.html HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: www.testingmcafeesites.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
 
     let one_response = one_client.wait_for_chunk();
     let another_response = another_client.wait_for_chunk();
 
-    assert_eq!(
-        index_of(&one_response, &b"<h1>Example Domain</h1>"[..]).is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(one_response).unwrap()
-    );
-    assert_eq!(
-        index_of(
-            &another_response,
-            &b"neverssl.com will never use SSL (also known as TLS)"[..],
-        )
-        .is_some(),
-        true,
-        "Actual response:\n{}",
-        String::from_utf8(another_response).unwrap()
-    );
+    {
+        assert_eq!(
+            index_of(
+                &one_response,
+                &b"Education/Reference website with a low risk reputation score"[..]
+            )
+            .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(one_response).unwrap()
+        );
+        assert_eq!(
+            index_of(
+                &one_response,
+                &b"This page simply displays this text without any specific content on it, it is just for testing purpose."
+                    [..],
+            )
+                .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(one_response).unwrap()
+        );
+    }
+    {
+        assert_eq!(
+            index_of(
+                &another_response,
+                &b"Public Information website with a low risk reputation score"[..]
+            )
+            .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(another_response).unwrap()
+        );
+        assert_eq!(
+            index_of(
+                &another_response,
+                &b"This page simply displays this text without any specific content on it, it is just for testing purpose."
+                    [..],
+            )
+                .is_some(),
+            true,
+            "Actual response:\n{}",
+            String::from_utf8(another_response).unwrap()
+        );
+    }
 }

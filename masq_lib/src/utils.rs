@@ -58,14 +58,14 @@ fn compute_data_directory_help() -> String {
     let polygon_mainnet_dir = Path::new(&data_dir.to_str().unwrap())
         .join("MASQ")
         .join("polygon-mainnet");
-    let polygon_mumbai_dir = Path::new(&data_dir.to_str().unwrap())
+    let polygon_amoy_dir = Path::new(&data_dir.to_str().unwrap())
         .join("MASQ")
-        .join("polygon-mumbai");
+        .join("polygon-amoy");
     format!("Directory in which the Node will store its persistent state, including at least its database \
         and by default its configuration file as well. By default, your data-directory is located in \
         your application directory, under your home directory e.g.: '{}'.\n\n\
         In case you change your chain to a different one, the data-directory path is automatically changed \
-        to end with the name of your chain: e.g.: if you choose polygon-mumbai, then data-directory is \
+        to end with the name of your chain: e.g.: if you choose polygon-amoy, then data-directory is \
         automatically changed to: '{}'.\n\n\
         You can specify your own data-directory to the Daemon in two different ways: \n\n\
         1. If you provide a path without the chain name on the end, the Daemon will automatically change \
@@ -74,7 +74,7 @@ fn compute_data_directory_help() -> String {
         2. If you provide your data directory with the corresponding chain name on the end, eg: {}/masq_home/polygon-mainnet, \
         there will be no change until you set the chain parameter to a different value.",
             polygon_mainnet_dir.to_string_lossy().to_string().as_str(),
-            polygon_mumbai_dir.to_string_lossy().to_string().as_str(),
+            polygon_amoy_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             &home_dir.to_string_lossy().to_string().as_str(),
             home_dir.to_string_lossy().to_string().as_str()
@@ -431,10 +431,7 @@ pub fn exit_process_with_sigterm(message: &str) {
 }
 
 pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
-    slice
-        .iter()
-        .map(|item| item.to_string())
-        .collect::<Vec<String>>()
+    slice.iter().map(to_string).collect::<Vec<String>>()
 }
 
 pub trait ExpectValue<T> {
@@ -499,6 +496,14 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
+// A handy function for closures
+pub fn to_string<D>(displayable: D) -> String
+where
+    D: Display,
+{
+    displayable.to_string()
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -517,10 +522,10 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! declare_as_any {
+macro_rules! as_any_ref_in_trait {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             use masq_lib::intentionally_blank;
             intentionally_blank!()
         }
@@ -528,11 +533,118 @@ macro_rules! declare_as_any {
 }
 
 #[macro_export]
-macro_rules! implement_as_any {
+macro_rules! as_any_ref_in_trait_impl {
     () => {
         #[cfg(test)]
-        fn as_any(&self) -> &dyn Any {
+        fn as_any(&self) -> &dyn std::any::Any {
             self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            use masq_lib::intentionally_blank;
+            intentionally_blank!()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! as_any_mut_in_trait_impl {
+    () => {
+        #[cfg(test)]
+        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+            self
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! test_only_use {
+    ($($use_clause: item),+) => {
+      $(
+        #[cfg(test)]
+        $use_clause
+      )+
+    }
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! btreemap {
+    () => {
+        ::std::collections::BTreeMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        btreemap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _btm = ::std::collections::BTreeMap::new();
+            $(
+                let _ = _btm.insert($key, $value);
+            )*
+            _btm
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! hashmap {
+    () => {
+        ::std::collections::HashMap::new()
+    };
+    ($($key:expr => $val:expr,)+) => {
+        hashmap!($($key => $val),+)
+    };
+    ($($key:expr => $value:expr),+) => {
+        {
+            let mut _hm = ::std::collections::HashMap::new();
+            $(
+                let _ = _hm.insert($key, $value);
+            )*
+            _hm
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! hashset {
+    () => {
+        ::std::collections::HashSet::new()
+    };
+    ($($val:expr,)+) => {
+        hashset!($($val),+)
+    };
+    ($($value:expr),+) => {
+        {
+            let mut _hs = ::std::collections::HashSet::new();
+            $(
+                let _ = _hs.insert($value);
+            )*
+            _hs
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! btreeset {
+    () => {
+        ::std::collections::BTreeSet::new()
+    };
+    ($($val:expr,)+) => {
+        btreeset!($($val),+)
+    };
+    ($($value:expr),+) => {
+        {
+            let mut _bts = ::std::collections::BTreeSet::new();
+            $(
+                let _ = _bts.insert($value);
+            )*
+            _bts
         }
     };
 }
@@ -1028,5 +1140,156 @@ mod tests {
     fn type_name_of_works() {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
+    }
+
+    #[test]
+    fn hashmap_macro_works() {
+        let empty_hashmap: HashMap<i32, i32> = hashmap!();
+        let hashmap_with_one_element = hashmap!(1 => 2);
+        let hashmap_with_multiple_elements = hashmap!(1 => 2, 10 => 20, 12 => 42);
+        let hashmap_with_trailing_comma = hashmap!(1 => 2, 10 => 20,);
+        let hashmap_of_string = hashmap!("key_1" => "val_a", "key_2" => "val_b");
+        let hashmap_with_duplicate = hashmap!(1 => 2, 1 => 2);
+
+        let expected_empty_hashmap: HashMap<i32, i32> = HashMap::new();
+        let mut expected_hashmap_with_one_element = HashMap::new();
+        expected_hashmap_with_one_element.insert(1, 2);
+        let mut expected_hashmap_with_multiple_elements = HashMap::new();
+        expected_hashmap_with_multiple_elements.insert(1, 2);
+        expected_hashmap_with_multiple_elements.insert(10, 20);
+        expected_hashmap_with_multiple_elements.insert(12, 42);
+        let mut expected_hashmap_with_trailing_comma = HashMap::new();
+        expected_hashmap_with_trailing_comma.insert(1, 2);
+        expected_hashmap_with_trailing_comma.insert(10, 20);
+        let mut expected_hashmap_of_string = HashMap::new();
+        expected_hashmap_of_string.insert("key_1", "val_a");
+        expected_hashmap_of_string.insert("key_2", "val_b");
+        let mut expected_hashmap_with_duplicate = HashMap::new();
+        expected_hashmap_with_duplicate.insert(1, 2);
+        assert_eq!(empty_hashmap, expected_empty_hashmap);
+        assert_eq!(hashmap_with_one_element, expected_hashmap_with_one_element);
+        assert_eq!(
+            hashmap_with_multiple_elements,
+            expected_hashmap_with_multiple_elements
+        );
+        assert_eq!(
+            hashmap_with_trailing_comma,
+            expected_hashmap_with_trailing_comma
+        );
+        assert_eq!(hashmap_of_string, expected_hashmap_of_string);
+        assert_eq!(hashmap_with_duplicate, expected_hashmap_with_duplicate);
+    }
+
+    #[test]
+    fn btreemap_macro_works() {
+        let empty_btm: BTreeMap<String, i32> = btreemap!();
+        let btm_with_one_element = btreemap!("ABC" => "234");
+        let btm_with_multiple_elements = btreemap!("Bobble" => 2, "Hurrah" => 20, "Boom" => 42);
+        let btm_with_trailing_comma = btreemap!(12 => 1, 22 =>2,);
+        let btm_with_duplicate = btreemap!("A"=>123, "A"=>222);
+
+        let expected_empty_btm: BTreeMap<String, i32> = BTreeMap::new();
+        let mut expected_btm_with_one_element = BTreeMap::new();
+        expected_btm_with_one_element.insert("ABC", "234");
+        let mut expected_btm_with_multiple_elements = BTreeMap::new();
+        expected_btm_with_multiple_elements.insert("Bobble", 2);
+        expected_btm_with_multiple_elements.insert("Hurrah", 20);
+        expected_btm_with_multiple_elements.insert("Boom", 42);
+        let mut expected_btm_with_trailing_comma = BTreeMap::new();
+        expected_btm_with_trailing_comma.insert(12, 1);
+        expected_btm_with_trailing_comma.insert(22, 2);
+        let mut expected_btm_with_duplicate = BTreeMap::new();
+        expected_btm_with_duplicate.insert("A", 222);
+        assert_eq!(empty_btm, expected_empty_btm);
+        assert_eq!(btm_with_one_element, expected_btm_with_one_element);
+        assert_eq!(
+            btm_with_multiple_elements,
+            expected_btm_with_multiple_elements
+        );
+        assert_eq!(
+            btm_with_multiple_elements.into_iter().collect_vec(),
+            vec![("Bobble", 2), ("Boom", 42), ("Hurrah", 20)]
+        );
+        assert_eq!(btm_with_trailing_comma, expected_btm_with_trailing_comma);
+        assert_eq!(btm_with_duplicate, expected_btm_with_duplicate);
+    }
+
+    #[test]
+    fn hashset_macro_works() {
+        let empty_hashset: HashSet<i32> = hashset!();
+        let hashset_with_one_element = hashset!(2);
+        let hashset_with_multiple_elements = hashset!(2, 20, 42);
+        let hashset_with_trailing_comma = hashset!(2, 20,);
+        let hashset_of_string = hashset!("val_a", "val_b");
+        let hashset_with_duplicate = hashset!(2, 2);
+
+        let expected_empty_hashset: HashSet<i32> = HashSet::new();
+        let mut expected_hashset_with_one_element = HashSet::new();
+        expected_hashset_with_one_element.insert(2);
+        let mut expected_hashset_with_multiple_elements = HashSet::new();
+        expected_hashset_with_multiple_elements.insert(2);
+        expected_hashset_with_multiple_elements.insert(20);
+        expected_hashset_with_multiple_elements.insert(42);
+        let mut expected_hashset_with_trailing_comma = HashSet::new();
+        expected_hashset_with_trailing_comma.insert(2);
+        expected_hashset_with_trailing_comma.insert(20);
+        let mut expected_hashset_of_string = HashSet::new();
+        expected_hashset_of_string.insert("val_a");
+        expected_hashset_of_string.insert("val_b");
+        let mut expected_hashset_with_duplicate = HashSet::new();
+        expected_hashset_with_duplicate.insert(2);
+        assert_eq!(empty_hashset, expected_empty_hashset);
+        assert_eq!(hashset_with_one_element, expected_hashset_with_one_element);
+        assert_eq!(
+            hashset_with_multiple_elements,
+            expected_hashset_with_multiple_elements
+        );
+        assert_eq!(
+            hashset_with_trailing_comma,
+            expected_hashset_with_trailing_comma
+        );
+        assert_eq!(hashset_of_string, expected_hashset_of_string);
+        assert_eq!(hashset_with_duplicate, expected_hashset_with_duplicate);
+    }
+
+    #[test]
+    fn btreeset_macro_works() {
+        let empty_btreeset: BTreeSet<i32> = btreeset!();
+        let btreeset_with_one_element = btreeset!(2);
+        let btreeset_with_multiple_elements = btreeset!(2, 20, 42);
+        let btreeset_with_trailing_comma = btreeset!(2, 20,);
+        let btreeset_of_string = btreeset!("val_a", "val_b");
+        let btreeset_with_duplicate = btreeset!(2, 2);
+
+        let expected_empty_btreeset: BTreeSet<i32> = BTreeSet::new();
+        let mut expected_btreeset_with_one_element = BTreeSet::new();
+        expected_btreeset_with_one_element.insert(2);
+        let mut expected_btreeset_with_multiple_elements = BTreeSet::new();
+        expected_btreeset_with_multiple_elements.insert(2);
+        expected_btreeset_with_multiple_elements.insert(20);
+        expected_btreeset_with_multiple_elements.insert(42);
+        let mut expected_btreeset_with_trailing_comma = BTreeSet::new();
+        expected_btreeset_with_trailing_comma.insert(2);
+        expected_btreeset_with_trailing_comma.insert(20);
+        let mut expected_btreeset_of_string = BTreeSet::new();
+        expected_btreeset_of_string.insert("val_a");
+        expected_btreeset_of_string.insert("val_b");
+        let mut expected_btreeset_with_duplicate = BTreeSet::new();
+        expected_btreeset_with_duplicate.insert(2);
+        assert_eq!(empty_btreeset, expected_empty_btreeset);
+        assert_eq!(
+            btreeset_with_one_element,
+            expected_btreeset_with_one_element
+        );
+        assert_eq!(
+            btreeset_with_multiple_elements,
+            expected_btreeset_with_multiple_elements
+        );
+        assert_eq!(
+            btreeset_with_trailing_comma,
+            expected_btreeset_with_trailing_comma
+        );
+        assert_eq!(btreeset_of_string, expected_btreeset_of_string);
+        assert_eq!(btreeset_with_duplicate, expected_btreeset_with_duplicate);
     }
 }

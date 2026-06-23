@@ -9,13 +9,14 @@ use crate::masq_short_writeln;
 use crate::terminal::TerminalWriter;
 use async_trait::async_trait;
 use clap::Command as ClapCommand;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
 };
 #[cfg(test)]
 use std::any::Any;
+use masq_lib::short_writeln;
 use std::fmt::Debug;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -68,7 +69,7 @@ impl Command for ConnectionStatusCommand {
         }
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl ConnectionStatusCommand {

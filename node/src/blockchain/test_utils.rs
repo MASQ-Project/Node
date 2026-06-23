@@ -9,16 +9,16 @@ use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
     ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
 };
-use crate::sub_lib::wallet::Wallet;
-use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
 use futures_util::future::BoxFuture;
 use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use serde_json::Value;
-use std::cell::RefCell;
-use std::collections::VecDeque;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::utils::to_string;
+use serde::Serialize;
+use serde_derive::Deserialize;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -38,10 +38,7 @@ lazy_static! {
 }
 
 pub fn make_meaningless_phrase_words() -> Vec<String> {
-    BIG_MEANINGLESS_PHRASE
-        .iter()
-        .map(|word| word.to_string())
-        .collect()
+    BIG_MEANINGLESS_PHRASE.iter().map(to_string).collect()
 }
 
 pub fn make_meaningless_phrase() -> String {
@@ -53,154 +50,63 @@ pub fn make_meaningless_seed() -> Seed {
     Seed::new(&mnemonic, "passphrase")
 }
 
+pub fn make_blockchain_interface_web3(port: u16) -> BlockchainInterfaceWeb3 {
+    let chain = Chain::PolyMainnet;
+    let (event_loop_handle, transport) = Http::with_max_parallel(
+        &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+        REQUESTS_IN_PARALLEL,
+    )
+    .unwrap();
+
+    BlockchainInterfaceWeb3::new(transport, event_loop_handle, chain)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct RpcResponse<S: Serialize> {
+    #[serde(rename = "jsonrpc")]
+    json_rpc: String,
+    id: u8,
+    result: S,
+}
+
 #[derive(Default)]
-pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
-    retrieve_transactions_results:
-        RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_payables_within_batch_params: Arc<
-        Mutex<
-            Vec<(
-                Wallet,
-                u64,
-                U256,
-                Recipient<PendingPayableFingerprintSeeds>,
-                Vec<PayableAccount>,
-            )>,
-        >,
-    >,
-    send_payables_within_batch_results:
-        RefCell<Vec<Result<Vec<ProcessedPayableFallible>, PayableTransactionError>>>,
-    get_transaction_fee_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_fee_balance_results: RefCell<Vec<ResultForBalance>>,
-    get_token_balance_params: Arc<Mutex<Vec<Wallet>>>,
-    get_token_balance_results: RefCell<Vec<ResultForBalance>>,
-    get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
-    contract_address_results: RefCell<Vec<Address>>,
-    get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
-    get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+pub struct ReceiptResponseBuilder {
+    transaction_hash_opt: Option<Hash>,
+    transaction_index_opt: Option<Index>,
+    block_hash_opt: Option<Hash>,
+    block_number_opt: Option<U64>,
+    cumulative_gas_used_opt: Option<U256>,
+    gas_used_opt: Option<U256>,
+    contract_address_opt: Option<H160>,
+    logs_opt: Option<Vec<Log>>,
+    status_opt: Option<U64>,
+    root_opt: Option<Hash>,
+    logs_bloom_opt: Option<H2048>,
 }
 
-impl BlockchainInterface for BlockchainInterfaceMock {
-    fn contract_address(&self) -> Address {
-        self.contract_address_results.borrow_mut().remove(0)
-    }
-
-    fn retrieve_transactions(
-        &self,
-        start_block: u64,
-        recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.retrieve_transactions_parameters
-            .lock()
-            .unwrap()
-            .push((start_block, recipient.clone()));
-        self.retrieve_transactions_results.borrow_mut().remove(0)
-    }
-
-    fn send_payables_within_batch(
-        &self,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-        last_nonce: U256,
-        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
-        accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
-        self.send_payables_within_batch_params
-            .lock()
-            .unwrap()
-            .push((
-                consuming_wallet.clone(),
-                gas_price,
-                last_nonce,
-                new_fingerprints_recipient.clone(),
-                accounts.to_vec(),
-            ));
-        self.send_payables_within_batch_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_transaction_fee_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        self.get_transaction_fee_balance_results
-            .borrow_mut()
-            .remove(0)
-    }
-
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance {
-        self.get_token_balance_params
-            .lock()
-            .unwrap()
-            .push(address.clone());
-        self.get_token_balance_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
-        self.get_transaction_receipt_params
-            .lock()
-            .unwrap()
-            .push(hash);
-        self.get_transaction_receipt_results.borrow_mut().remove(0)
-    }
-}
-
-impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
-        self.retrieve_transactions_parameters = params.clone();
+impl ReceiptResponseBuilder {
+    pub fn transaction_hash(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.transaction_hash_opt = Some(hash);
         self
     }
 
-    pub fn retrieve_transactions_result(
-        self,
-        result: Result<RetrievedBlockchainTransactions, BlockchainError>,
-    ) -> Self {
-        self.retrieve_transactions_results.borrow_mut().push(result);
+    pub fn transaction_index(mut self, index: Index) -> ReceiptResponseBuilder {
+        self.transaction_index_opt = Some(index);
         self
     }
 
-    pub fn send_payables_within_batch_params(
-        mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    Wallet,
-                    u64,
-                    U256,
-                    Recipient<PendingPayableFingerprintSeeds>,
-                    Vec<PayableAccount>,
-                )>,
-            >,
-        >,
-    ) -> Self {
-        self.send_payables_within_batch_params = params.clone();
+    pub fn block_hash(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.block_hash_opt = Some(hash);
         self
     }
 
-    pub fn send_payables_within_batch_result(
-        self,
-        result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
-    ) -> Self {
-        self.send_payables_within_batch_results
-            .borrow_mut()
-            .push(result);
+    pub fn block_number(mut self, number: U64) -> ReceiptResponseBuilder {
+        self.block_number_opt = Some(number);
         self
     }
 
-    pub fn get_transaction_fee_balance_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
-        self.get_transaction_fee_balance_params = params.clone();
+    pub fn cumulative_gas_used(mut self, number: U256) -> ReceiptResponseBuilder {
+        self.cumulative_gas_used_opt = Some(number);
         self
     }
 
@@ -311,37 +217,67 @@ impl TestTransport {
         self
     }
 
-    //why prepare_result missing? Look up for a comment at the struct
-
-    pub fn send_params(mut self, params: &Arc<Mutex<Vec<(RequestId, rpc::Call)>>>) -> Self {
-        self.send_params = params.clone();
+    pub fn contract_address(mut self, hash: H160) -> ReceiptResponseBuilder {
+        self.contract_address_opt = Some(hash);
         self
     }
 
-    pub fn send_result(self, rpc_call_response: rpc::Value) -> Self {
-        self.send_results.borrow_mut().push_back(rpc_call_response);
+    pub fn logs(mut self, logs: Vec<Log>) -> ReceiptResponseBuilder {
+        self.logs_opt = Some(logs);
         self
     }
 
-    pub fn send_batch_params(
-        mut self,
-        params: &Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
-    ) -> Self {
-        self.send_batch_params = params.clone();
+    pub fn status(mut self, number: U64) -> ReceiptResponseBuilder {
+        self.status_opt = Some(number);
         self
     }
 
-    pub fn send_batch_result(
-        self,
-        batched_responses: Vec<Result<rpc::Value, web3::Error>>,
-    ) -> Self {
-        self.send_batch_results.borrow_mut().push(batched_responses);
+    pub fn root(mut self, hash: Hash) -> ReceiptResponseBuilder {
+        self.root_opt = Some(hash);
         self
     }
 
-    pub fn initiate_reference_counter(mut self, reference_arc: &Arc<()>) -> Self {
-        self.reference_counter_opt = Some(reference_arc.clone());
+    pub fn logs_bloom(mut self, bloom: H2048) -> ReceiptResponseBuilder {
+        self.logs_bloom_opt = Some(bloom);
         self
+    }
+
+    pub fn build(self) -> String {
+        let mut transaction_receipt = TransactionReceipt::default();
+
+        if let Some(transaction_hash) = self.transaction_hash_opt {
+            transaction_receipt.transaction_hash = transaction_hash;
+        }
+
+        if let Some(index) = self.transaction_index_opt {
+            transaction_receipt.transaction_index = index;
+        }
+
+        if let Some(cumulative_gas_used) = self.cumulative_gas_used_opt {
+            transaction_receipt.cumulative_gas_used = cumulative_gas_used;
+        }
+
+        if let Some(logs) = self.logs_opt {
+            transaction_receipt.logs = logs;
+        }
+
+        if let Some(bloom) = self.logs_bloom_opt {
+            transaction_receipt.logs_bloom = bloom;
+        }
+
+        transaction_receipt.block_hash = self.block_hash_opt;
+        transaction_receipt.block_number = self.block_number_opt;
+        transaction_receipt.gas_used = self.gas_used_opt;
+        transaction_receipt.contract_address = self.contract_address_opt;
+        transaction_receipt.status = self.status_opt;
+        transaction_receipt.root = self.root_opt;
+
+        let rpc_response = RpcResponse {
+            json_rpc: "2.0".to_string(),
+            id: 1,
+            result: transaction_receipt,
+        };
+        serde_json::to_string(&rpc_response).unwrap()
     }
 }
 
@@ -510,6 +446,105 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
     }
 }
 
-pub fn make_tx_hash(base: u32) -> H256 {
+fn make_hash(base: u32) -> H256 {
     H256::from_uint(&U256::from(base))
+}
+
+pub fn make_tx_hash(base: u32) -> H256 {
+    make_hash(base)
+}
+
+pub fn make_block_hash(base: u32) -> H256 {
+    make_hash(base + 1000000000)
+}
+
+pub fn make_address(base: u32) -> Address {
+    let base = base % 0xfff;
+    let value = U256::from(base * 3);
+    let shifted = value << 72;
+    let value = U256::from(value) << 24;
+    let value = value | shifted;
+    let mut full_bytes = [0u8; 32];
+    value.to_big_endian(&mut full_bytes);
+    let mut bytes = [0u8; 20];
+    bytes.copy_from_slice(&full_bytes[12..]);
+    H160(bytes)
+}
+
+pub fn all_chains() -> [Chain; 4] {
+    [
+        Chain::EthMainnet,
+        Chain::PolyMainnet,
+        Chain::PolyAmoy,
+        Chain::Dev,
+    ]
+}
+
+pub fn transport_error_code() -> u16 {
+    if cfg!(target_os = "windows") {
+        10061
+    } else if cfg!(target_os = "macos") {
+        61
+    } else if cfg!(target_os = "linux") {
+        111
+    } else {
+        0
+    }
+}
+
+pub fn transport_error_message() -> String {
+    if cfg!(target_os = "windows") {
+        "No connection could be made because the target machine actively refused it.".to_string()
+    } else {
+        "Connection refused".to_string()
+    }
+}
+
+pub struct TransactionReceiptBuilder {
+    status_opt: Option<U64>,
+    block_hash_opt: Option<H256>,
+    block_number_opt: Option<U64>,
+    transaction_hash: H256,
+}
+
+impl TransactionReceiptBuilder {
+    pub fn new(transaction_hash: H256) -> Self {
+        Self {
+            status_opt: None,
+            block_hash_opt: None,
+            block_number_opt: None,
+            transaction_hash,
+        }
+    }
+
+    pub fn status(mut self, status: U64) -> Self {
+        self.status_opt = Some(status);
+        self
+    }
+
+    pub fn block_hash(mut self, block_hash: H256) -> Self {
+        self.block_hash_opt = Some(block_hash);
+        self
+    }
+
+    pub fn block_number(mut self, block_number: U64) -> Self {
+        self.block_number_opt = Some(block_number);
+        self
+    }
+
+    pub fn build(self) -> TransactionReceipt {
+        TransactionReceipt {
+            status: self.status_opt,
+            root: None,
+            block_hash: self.block_hash_opt,
+            block_number: self.block_number_opt,
+            cumulative_gas_used: Default::default(),
+            gas_used: None,
+            contract_address: None,
+            transaction_hash: self.transaction_hash,
+            transaction_index: Default::default(),
+            logs: vec![],
+            logs_bloom: Default::default(),
+        }
+    }
 }

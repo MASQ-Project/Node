@@ -3,6 +3,7 @@ use crate::sub_lib::route::RouteError;
 use base64::prelude::BASE64_STANDARD_NO_PAD;
 use base64::Engine;
 use ethsign_crypto::Keccak256;
+use masq_lib::blockchains::chains::Chain;
 use rustc_hex::{FromHex, ToHex};
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -542,6 +543,8 @@ pub trait CryptDE: Send + Sync {
         bytes: Vec<u8>,
     ) -> Result<PublicKey, String>;
     fn digest(&self) -> [u8; 32];
+    fn make_from_str(&self, value: &str, chain: Chain) -> Result<Box<dyn CryptDE>, String>;
+    fn to_string(&self) -> String;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -616,14 +619,19 @@ pub fn create_digest(msg: &dyn AsRef<[u8]>, address: &dyn AsRef<[u8]>) -> [u8; 3
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::test_utils::main_cryptde;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use rustc_hex::{FromHex, FromHexError};
     use serde::de;
     use serde::ser;
     use serde_cbor;
     use serde_derive::{Deserialize, Serialize};
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn private_key_constructor_works_as_expected() {
@@ -996,7 +1004,7 @@ mod tests {
 
     #[test]
     fn encodex_and_decodex_communicate() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let start = TestStruct::make();
 
         let intermediate = encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -1007,7 +1015,7 @@ mod tests {
 
     #[test]
     fn encodex_produces_expected_data() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let start = TestStruct::make();
 
         let intermediate = super::encodex(cryptde, &cryptde.public_key(), &start).unwrap();
@@ -1020,7 +1028,7 @@ mod tests {
 
     #[test]
     fn decodex_produces_expected_structure() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let serialized = serde_cbor::ser::to_vec(&TestStruct::make()).unwrap();
         let encrypted = cryptde
             .encode(&cryptde.public_key(), &PlainData::from(serialized))
@@ -1033,7 +1041,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_encryption_error() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let item = TestStruct::make();
 
         let result = encodex(cryptde, &PublicKey::new(&[]), &item);
@@ -1081,7 +1089,7 @@ mod tests {
 
     #[test]
     fn encodex_handles_serialization_error() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let item = BadSerStruct { flag: true };
 
         let result = encodex(cryptde, &cryptde.public_key(), &item);
@@ -1095,7 +1103,7 @@ mod tests {
 
     #[test]
     fn decodex_handles_deserialization_error() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let data = cryptde
             .encode(&cryptde.public_key(), &PlainData::new(b"whompem"))
             .unwrap();

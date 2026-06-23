@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::sub_lib::cryptde::CryptDE;
+use crate::bootstrapper::CryptDEPair;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, MessageType};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -21,7 +21,7 @@ pub fn error_socket_addr() -> SocketAddr {
 
 #[derive(Clone)]
 pub struct ProxyClientConfig {
-    pub cryptde: &'static dyn CryptDE,
+    pub cryptde_pair: CryptDEPair,
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
@@ -109,13 +109,12 @@ pub struct InboundServerData {
 mod tests {
     use super::*;
     use crate::sub_lib::peer_actors::BindMessage;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
-        let stream_key: StreamKey = make_meaningless_stream_key();
+        let stream_key: StreamKey = StreamKey::make_meaningless_stream_key();
 
         let payload = ClientResponsePayload_0v1::make_terminating_payload(stream_key);
 

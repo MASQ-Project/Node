@@ -4,8 +4,8 @@ use crate::blockchains::chains::Chain;
 use crate::data_version::DataVersion;
 use const_format::concatcp;
 
-pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
-pub const CURRENT_SCHEMA_VERSION: usize = 8;
+pub const DEFAULT_CHAIN: Chain = Chain::BaseMainnet;
+pub const CURRENT_SCHEMA_VERSION: usize = 13;
 
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
@@ -18,18 +18,17 @@ pub const MASQ_URL_PREFIX: &str = "masq://";
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
 
-pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
-
 pub const WALLET_ADDRESS_LENGTH: usize = 42;
-pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 pub const WEIS_IN_GWEI: i128 = 1_000_000_000;
 pub const GWEI_IN_MASQ: i128 = 1_000_000_000;
 
-pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
-pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
-pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
-pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
+pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
+
+pub const PAYLOAD_ZERO_SIZE: usize = 0usize;
+
+//descriptor
+pub const CENTRAL_DELIMITER: char = '@';
+pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
 
 //Migration versions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -72,6 +71,7 @@ pub const UNMARSHAL_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 4;
 pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 pub const SCAN_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 7;
+pub const EXIT_COUNTRY_MISSING_COUNTRIES_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 8;
 
 //accountant
 pub const ACCOUNTANT_PREFIX: u64 = 0x0040_0000_0000_0000;
@@ -81,22 +81,51 @@ pub const VALUE_EXCEEDS_ALLOWED_LIMIT: u64 = ACCOUNTANT_PREFIX | 3;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
+pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
 
-//descriptor
-pub const CENTRAL_DELIMITER: char = '@';
-pub const CHAIN_IDENTIFIER_DELIMITER: char = ':';
+pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
+pub const DEFAULT_GAS_PRICE_RETRY_PERCENTAGE: u64 = 30;
+pub const DEFAULT_GAS_PRICE_RETRY_CONSTANT: u128 = 5_000;
+pub const DEFAULT_MAX_BLOCK_COUNT: u64 = 100_000;
 
 //chains
-const MAINNET: &str = "mainnet";
+pub const POLYGON_MAINNET_CHAIN_ID: u64 = 137;
+pub const POLYGON_AMOY_CHAIN_ID: u64 = 80002;
+pub const BASE_MAINNET_CHAIN_ID: u64 = 8453;
+pub const BASE_SEPOLIA_CHAIN_ID: u64 = 84532;
+pub const ETH_MAINNET_CHAIN_ID: u64 = 1;
+pub const ETH_ROPSTEN_CHAIN_ID: u64 = 3;
+pub const DEV_CHAIN_ID: u64 = 2;
 const POLYGON_FAMILY: &str = "polygon";
 const ETH_FAMILY: &str = "eth";
+const BASE_FAMILY: &str = "base";
+const MAINNET: &str = "mainnet";
 const LINK: char = '-';
 pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, MAINNET);
-pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
-pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+pub const POLYGON_AMOY_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "amoy");
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
 pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
+pub const BASE_MAINNET_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, MAINNET);
+pub const BASE_SEPOLIA_FULL_IDENTIFIER: &str = concatcp!(BASE_FAMILY, LINK, "sepolia");
+pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
+
+pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
+pub const ETH_ROPSTEN_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
+pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
+pub const POLYGON_AMOY_CONTRACT_CREATION_BLOCK: u64 = 5_323_366;
+pub const BASE_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 19_711_235;
+pub const BASE_SEPOLIA_CONTRACT_CREATION_BLOCK: u64 = 14_732_730;
+pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
+
+pub const POLYGON_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
+pub const ETH_GAS_PRICE_CEILING_WEI: u128 = 100_000_000_000;
+pub const BASE_GAS_PRICE_CEILING_WEI: u128 = 50_000_000_000;
+pub const DEV_GAS_PRICE_CEILING_WEI: u128 = 200_000_000_000;
+
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC: u64 = 600;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC: u64 = 120;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC: u64 = 180;
+pub const DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC: u64 = 120;
 
 #[cfg(test)]
 mod tests {
@@ -104,7 +133,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_CHAIN, Chain::PolyMainnet);
+        assert_eq!(DEFAULT_CHAIN, Chain::BaseMainnet);
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);
@@ -115,15 +144,19 @@ mod tests {
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
         assert_eq!(DEFAULT_GAS_PRICE, 1);
+        assert_eq!(DEFAULT_GAS_PRICE_RETRY_PERCENTAGE, 30);
+        assert_eq!(DEFAULT_GAS_PRICE_RETRY_CONSTANT, 5_000);
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
         assert_eq!(WEIS_IN_GWEI, 1_000_000_000);
         assert_eq!(GWEI_IN_MASQ, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
-        assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
-        assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
+        assert_eq!(ETH_ROPSTEN_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
-        assert_eq!(MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, 24_638_838);
+        assert_eq!(POLYGON_AMOY_CONTRACT_CREATION_BLOCK, 5_323_366);
+        assert_eq!(BASE_MAINNET_CONTRACT_CREATION_BLOCK, 19_711_235);
+        assert_eq!(BASE_SEPOLIA_CONTRACT_CREATION_BLOCK, 14_732_730);
+        assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
         assert_eq!(CONFIGURATOR_PREFIX, 0x0001_0000_0000_0000);
         assert_eq!(CONFIGURATOR_READ_ERROR, CONFIGURATOR_PREFIX | 1);
         assert_eq!(CONFIGURATOR_WRITE_ERROR, CONFIGURATOR_PREFIX | 2);
@@ -159,15 +192,32 @@ mod tests {
         assert_eq!(VALUE_EXCEEDS_ALLOWED_LIMIT, ACCOUNTANT_PREFIX | 3);
         assert_eq!(CENTRAL_DELIMITER, '@');
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
-        assert_eq!(MAINNET, "mainnet");
+        assert_eq!(POLYGON_MAINNET_CHAIN_ID, 137);
+        assert_eq!(POLYGON_AMOY_CHAIN_ID, 80002);
+        assert_eq!(BASE_MAINNET_CHAIN_ID, 8453);
+        assert_eq!(BASE_SEPOLIA_CHAIN_ID, 84532);
+        assert_eq!(ETH_MAINNET_CHAIN_ID, 1);
+        assert_eq!(ETH_ROPSTEN_CHAIN_ID, 3);
+        assert_eq!(DEV_CHAIN_ID, 2);
         assert_eq!(POLYGON_FAMILY, "polygon");
         assert_eq!(ETH_FAMILY, "eth");
+        assert_eq!(BASE_FAMILY, "base");
+        assert_eq!(MAINNET, "mainnet");
         assert_eq!(LINK, '-');
         assert_eq!(POLYGON_MAINNET_FULL_IDENTIFIER, "polygon-mainnet");
-        assert_eq!(POLYGON_MUMBAI_FULL_IDENTIFIER, "polygon-mumbai");
-        assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
+        assert_eq!(POLYGON_AMOY_FULL_IDENTIFIER, "polygon-amoy");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
+        assert_eq!(BASE_SEPOLIA_FULL_IDENTIFIER, "base-sepolia");
+        assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
+        assert_eq!(POLYGON_GAS_PRICE_CEILING_WEI, 200_000_000_000);
+        assert_eq!(ETH_GAS_PRICE_CEILING_WEI, 100_000_000_000);
+        assert_eq!(BASE_GAS_PRICE_CEILING_WEI, 50_000_000_000);
+        assert_eq!(DEV_GAS_PRICE_CEILING_WEI, 200_000_000_000);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_ETH_SEC, 600);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_BASE_SEC, 120);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_POLYGON_SEC, 180);
+        assert_eq!(DEFAULT_PENDING_PAYABLE_INTERVAL_DEV_SEC, 120);
         assert_eq!(
             CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }
@@ -189,6 +239,7 @@ mod tests {
             NODE_RECORD_INNER_CURRENT_VERSION,
             DataVersion { major: 0, minor: 1 }
         );
+        assert_eq!(PAYLOAD_ZERO_SIZE, 0usize);
     }
 
     #[test]

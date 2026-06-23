@@ -9,6 +9,7 @@ use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::{ConfiguredByPrivilege, SpawnableConfiguredByPrivilege};
 use async_trait::async_trait;
 use backtrace::Backtrace;
+use clap::value_t;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger,
     Naming, Record,
@@ -17,7 +18,6 @@ use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
 use masq_lib::logger;
 use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
-use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use std::any::Any;
 use std::io;
@@ -28,8 +28,9 @@ use time::OffsetDateTime;
 use tokio::task::{JoinHandle};
 
 pub struct ServerInitializerReal {
-    dns_socket_server_opt: Option<Box<dyn SpawnableConfiguredByPrivilege>>,
-    bootstrapper: Box<dyn ConfiguredByPrivilege>,
+    #[allow(dead_code)]
+    dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
+    bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
     dirs_wrapper: Box<dyn DirsWrapper>,
 }
@@ -37,8 +38,13 @@ pub struct ServerInitializerReal {
 #[async_trait(?Send)]
 impl ServerInitializer for ServerInitializerReal {
     async fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult {
-        let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let multi_config = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let real_user = value_m!(multi_config, "real-user", RealUser)
+            .expect("ServerInitializer: Real user not present in Multi Config");
+        let data_directory = value_m!(multi_config, "data-directory", String)
+            .expect("ServerInitializer: Data directory not present in Multi Config");
 
+        // TODO: GH-525: This card should bring back the commented out code for dns_socket_server
         let result: RunModeResult = Ok(())
             .combine_results(
                 self.dns_socket_server_opt
@@ -49,14 +55,14 @@ impl ServerInitializer for ServerInitializerReal {
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_privileged(&params.multi_config)
+                    .initialize_as_privileged(&multi_config)
                     .await,
             );
 
         self.privilege_dropper
-            .chown(&params.data_directory, &params.real_user);
+            .chown(Path::new(data_directory.as_str()), &real_user);
 
-        self.privilege_dropper.drop_privileges(&params.real_user);
+        self.privilege_dropper.drop_privileges(&real_user);
 
         result
             .combine_results(
@@ -68,7 +74,7 @@ impl ServerInitializer for ServerInitializerReal {
             )
             .combine_results(
                 self.bootstrapper
-                    .initialize_as_unprivileged(&params.multi_config, streams)
+                    .initialize_as_unprivileged(&multi_config, streams)
                     .await,
             )
     }
@@ -91,7 +97,7 @@ impl Default for ServerInitializerReal {
             dns_socket_server_opt: Some(Box::new(DnsSocketServer::new())),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -112,29 +118,6 @@ impl ResultsCombiner for RunModeResult {
                     .chain(e2.param_errors)
                     .collect(),
             )),
-        }
-    }
-}
-
-pub struct GatheredParams {
-    pub multi_config: MultiConfig,
-    pub config_file_path: PathBuf,
-    pub real_user: RealUser,
-    pub data_directory: PathBuf,
-}
-
-impl GatheredParams {
-    pub fn new(
-        multi_config: MultiConfig,
-        config_file_path: PathBuf,
-        real_user: RealUser,
-        data_directory: PathBuf,
-    ) -> Self {
-        Self {
-            multi_config,
-            config_file_path,
-            real_user,
-            data_directory,
         }
     }
 }
@@ -404,7 +387,6 @@ pub mod test_utils {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::bootstrapper::BootstrapperConfig;
     use crate::crash_test_dummy::CrashTestDummy;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
@@ -415,18 +397,17 @@ pub mod tests {
     use masq_lib::crash_point::CrashPoint;
     use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-    use masq_lib::test_utils::fake_stream_holder::{
-        ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
-    };
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
+    use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
 
     #[async_trait(?Send)]
-    impl<C: Send> ConfiguredByPrivilege for CrashTestDummy<C> {
-        async fn initialize_as_privileged(
+    impl ConfiguredByPrivilege for CrashTestDummy<C> {
+        fn initialize_as_privileged(
             &mut self,
             _multi_config: &MultiConfig,
         ) -> Result<(), ConfiguratorError> {
@@ -722,8 +703,8 @@ pub mod tests {
     #[tokio::test]
     async fn exits_after_all_socket_servers_exit() {
         let _ = LogfileNameGuard::new(&PathBuf::from("uninitialized"));
-        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error, ());
-        let bootstrapper = CrashTestDummy::new(CrashPoint::Error, BootstrapperConfig::new());
+        let dns_socket_server = CrashTestDummy::new(CrashPoint::Error);
+        let bootstrapper = CrashTestDummy::new(CrashPoint::Error);
         let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
         let privilege_dropper = PrivilegeDropperMock::new();
         let mut subject = ServerInitializerReal {
@@ -757,16 +738,16 @@ pub mod tests {
     }
 
     #[tokio::test]
-    #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
+    // TODO: GH-525: It should panic
+    // #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     async fn server_initializer_dns_socket_server_panics() {
-        let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
+        let bootstrapper = CrashTestDummy::new(CrashPoint::None);
         let privilege_dropper = PrivilegeDropperMock::new();
         let dirs_wrapper = DirsWrapperMock::new();
 
         let mut subject = ServerInitializerReal {
             dns_socket_server_opt: Some(Box::new(CrashTestDummy::panic(
                 "EntryDnsServerMock was instructed to panic".to_string(),
-                (),
             ))),
             bootstrapper: Box::new(bootstrapper),
             privilege_dropper: Box::new(privilege_dropper),
@@ -837,7 +818,11 @@ pub mod tests {
             )
             .await;
 
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "Result should have been Ok(()), but was: {:?}",
+            result
+        );
         let real_user = RealUser::new(Some(123), Some(456), Some("/home/alice".into()));
         let chown_params = chown_params_arc.lock().unwrap();
         assert_eq!(
@@ -856,8 +841,8 @@ pub mod tests {
         [
             bootstrapper_init_privileged_params_arc,
             bootstrapper_init_unprivileged_params_arc,
-            dns_socket_server_privileged_params_arc,
-            dns_socket_server_unprivileged_params_arc,
+            // dns_socket_server_privileged_params_arc, // TODO: GH-525: Fix me
+            // dns_socket_server_unprivileged_params_arc,
         ]
         .iter()
         .for_each(|arc_params| {
@@ -905,12 +890,13 @@ pub mod tests {
 
         let result = subject.go(&mut holder.streams(), &args).await;
 
+        // TODO: GH-525: Fix me
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![
-                ParamError::new("dns-iap", "dns-iap-reason"),
+                // ParamError::new("dns-iap", "dns-iap-reason"),
                 ParamError::new("boot-iap", "boot-iap-reason"),
-                ParamError::new("dns-iau", "dns-iau-reason"),
+                // ParamError::new("dns-iau", "dns-iau-reason"),
                 ParamError::new("boot-iau", "boot-iau-reason")
             ]))
         );

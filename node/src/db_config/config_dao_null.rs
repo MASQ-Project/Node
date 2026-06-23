@@ -1,15 +1,16 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::DbInitializerReal;
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::neighborhood::DEFAULT_MIN_HOPS;
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::accountant;
+use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
+use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, DEFAULT_RATE_PACK_LIMITS};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE};
 use std::collections::HashMap;
-
 /*
 
 This class exists because the Daemon uses the same configuration code that the Node uses, and
@@ -41,6 +42,7 @@ insurmountable, but it would need to be considered and coded around.
 
  */
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConfigDaoNull {
     data: HashMap<String, (Option<String>, bool)>,
 }
@@ -70,6 +72,15 @@ impl ConfigDao for ConfigDaoNull {
     fn set(&self, _name: &str, _value: Option<String>) -> Result<(), ConfigDaoError> {
         Ok(())
     }
+
+    fn set_by_guest_transaction(
+        &self,
+        _txn: &mut TransactionSafeWrapper,
+        _name: &str,
+        _value: Option<String>,
+    ) -> Result<(), ConfigDaoError> {
+        Ok(())
+    }
 }
 
 impl Default for ConfigDaoNull {
@@ -89,6 +100,7 @@ impl Default for ConfigDaoNull {
                 false,
             ),
         );
+        data.insert("last_cryptde".to_string(), (None, true));
         data.insert(
             "gas_price".to_string(),
             (Some(DEFAULT_GAS_PRICE.to_string()), false),
@@ -127,9 +139,20 @@ impl Default for ConfigDaoNull {
             (Some(DEFAULT_RATE_PACK.to_string()), false),
         );
         data.insert(
-            "scan_intervals".to_string(),
-            (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
+            "rate_pack_limits".to_string(),
+            (
+                Some(DEFAULT_RATE_PACK_LIMITS.rate_pack_limits_parameter()),
+                false,
+            ),
         );
+        data.insert(
+            "scan_intervals".to_string(),
+            (
+                Some(accountant::ScanIntervals::compute_default(Chain::default()).to_string()),
+                false,
+            ),
+        );
+        data.insert("max_block_count".to_string(), (None, false));
         Self { data }
     }
 }
@@ -139,12 +162,12 @@ mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use std::collections::HashSet;
 
     #[test]
     fn get_works() {
@@ -195,7 +218,7 @@ mod tests {
             subject.get("scan_intervals").unwrap(),
             ConfigDaoRecord::new(
                 "scan_intervals",
-                Some(&DEFAULT_SCAN_INTERVALS.to_string()),
+                Some(&accountant::ScanIntervals::compute_default(Chain::default()).to_string()),
                 false
             )
         );
@@ -228,12 +251,13 @@ mod tests {
         assert_eq!(null_pairs, real_pairs);
     }
 
-    fn return_parameter_pairs(dao: &dyn ConfigDao) -> HashSet<(String, bool)> {
+    fn return_parameter_pairs(dao: &dyn ConfigDao) -> Vec<(String, bool)> {
         dao.get_all()
             .unwrap()
             .into_iter()
             .map(|r| (r.name, r.encrypted))
-            .collect()
+            .sorted_by_key(|pair| pair.0.clone())
+            .collect::<Vec<(String, bool)>>()
     }
 
     #[test]
@@ -273,6 +297,7 @@ mod tests {
                 "schema_version",
                 Some(format!("{}", CURRENT_SCHEMA_VERSION).as_str()),
             ),
+            ("max_block_count", None),
         ]
         .into_iter()
         .map(|(k, v_opt)| (k.to_string(), v_opt.map(|v| v.to_string())))
@@ -280,5 +305,43 @@ mod tests {
         .sort_by_key(|p| p.0.clone());
 
         assert_eq!(value_pairs, expected_pairs);
+    }
+
+    #[test]
+    fn set_works_simple() {
+        let subject = ConfigDaoNull::default();
+
+        subject.set("param1", Some("value1".to_string())).unwrap();
+        subject.set("schema_version", None).unwrap();
+        subject
+            .set("schema_version", Some("456".to_string()))
+            .unwrap();
+
+        let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_sorted, comparison_subject_data_sorted)
+    }
+
+    #[test]
+    fn set_by_guest_transaction_works_simple() {
+        let subject = ConfigDaoNull::default();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+
+        subject
+            .set_by_guest_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .unwrap();
+        subject
+            .set_by_guest_transaction(&mut txn, "schema_version", None)
+            .unwrap();
+        subject
+            .set_by_guest_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .unwrap();
+
+        let subject_data_after_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_after_sorted, subject_data_before_sorted)
+        // Test didn't blow up so no method from the txn wrapper was called,
+        // therefore we don't even have to consider committing the transaction
     }
 }

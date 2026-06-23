@@ -1,36 +1,33 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::checked_conversion;
-use crate::accountant::db_access_objects::dao_utils;
-use crate::accountant::db_access_objects::dao_utils::{
-    sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
+use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
+use crate::accountant::db_access_objects::utils;
+use crate::accountant::db_access_objects::utils::{
+    sum_i128_values_from_table, to_unix_timestamp, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::db_big_integer::big_int_db_processor::KnownKeyVariants::WalletAddress;
-use crate::accountant::db_big_integer::big_int_db_processor::WeiChange::{Addition, Subtraction};
+use crate::accountant::db_big_integer::big_int_db_processor::KeyVariants::WalletAddress;
 use crate::accountant::db_big_integer::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
+    BigIntDatabaseError, BigIntDbProcessor, BigIntDbProcessorReal, BigIntSqlConfig,
+    DisplayableRusqliteParamPair, ParamByUse, SQLParamsBuilder, TableNameDAO, WeiChange,
+    WeiChangeDirection,
 };
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::gwei_to_wei;
-use crate::blockchain::blockchain_interface::BlockchainTransaction;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::blockchain::blockchain_interface::data_structures::BlockchainTransaction;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::db_config::persistent_configuration::PersistentConfigError;
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
-use itertools::Either::Left;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
-#[cfg(test)]
-use std::any::Any;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -38,12 +35,6 @@ pub enum ReceivableDaoError {
     SignConversion(u128),
     ConfigurationError(String),
     RusqliteError(String),
-}
-
-impl From<PersistentConfigError> for ReceivableDaoError {
-    fn from(input: PersistentConfigError) -> Self {
-        ReceivableDaoError::ConfigurationError(format!("{:?}", input))
-    }
 }
 
 impl From<rusqlite::Error> for ReceivableDaoError {
@@ -59,15 +50,19 @@ pub struct ReceivableAccount {
     pub last_received_timestamp: SystemTime,
 }
 
-pub trait ReceivableDao: Send {
+pub trait ReceivableDao {
     fn more_money_receivable(
         &self,
         now: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>);
+    fn more_money_received(
+        &mut self,
+        now: SystemTime,
+        transactions: &[BlockchainTransaction],
+    ) -> TransactionSafeWrapper;
 
     fn new_delinquencies(
         &self,
@@ -81,10 +76,10 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
+    // Test-only method but because of shares with multi-node tests #[cfg(test)] cannot be applied
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 pub trait ReceivableDaoFactory {
@@ -108,7 +103,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: BigIntDbProcessor<Self>,
+    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
     logger: Logger,
 }
 
@@ -117,34 +112,79 @@ impl ReceivableDao for ReceivableDaoReal {
         &self,
         timestamp: SystemTime,
         wallet: &Wallet,
-        amount: u128,
+        amount_minor: u128,
     ) -> Result<(), ReceivableDaoError> {
         let main_sql = "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values \
-        (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do update set \
+        (:wallet, :balance_high_b, :balance_low_b, :last_received_timestamp) on conflict (wallet_address) do update set \
         balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b";
-        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
+        let update_clause_with_compensated_overflow = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
         where wallet_address = :wallet";
 
-        Ok(self.big_int_db_processor.execute(
-            Left(self.conn.as_ref()),
-            BigIntSqlConfig::new(
-                main_sql,
-                overflow_update_clause,
-                SQLParamsBuilder::default()
-                    .key(WalletAddress(wallet))
-                    .wei_change(Addition("balance", amount))
-                    .other_params(vec![Param::new(
-                        (":last_received", &to_time_t(timestamp)),
-                        false,
-                    )])
-                    .build(),
-            ),
-        )?)
+        let last_received_timestamp = to_unix_timestamp(timestamp);
+        let params = SQLParamsBuilder::default()
+            .key(WalletAddress(wallet))
+            .wei_change(WeiChange::new(
+                "balance",
+                amount_minor,
+                WeiChangeDirection::Addition,
+            ))
+            .other_params(vec![ParamByUse::BeforeOverflowOnly(
+                DisplayableRusqliteParamPair::new(
+                    ":last_received_timestamp",
+                    &last_received_timestamp,
+                ),
+            )])
+            .build();
+
+        self.big_int_db_processor.execute(
+            Either::Left(self.conn.as_ref()),
+            BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
+        )?;
+
+        Ok(())
     }
 
-    fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
-        self.try_multi_insert_payment(timestamp, &payments)
-            .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
+    fn more_money_received(
+        &mut self,
+        timestamp: SystemTime,
+        received_payments: &[BlockchainTransaction],
+    ) -> TransactionSafeWrapper<'_> {
+        let accounting_result = match self.conn.transaction() {
+            Ok(txn) => {
+                let big_int_db_processor = &*self.big_int_db_processor;
+                let logger = &self.logger;
+
+                Self::process_received_payments_and_return_txn(
+                    big_int_db_processor,
+                    received_payments,
+                    timestamp,
+                    txn,
+                    logger,
+                )
+            }
+            // Even though done with the accountancy, we still haven't updated the start block.
+            // We will proceed that as the last thing because of our concern about data continuity
+            // for cases if anything here or the whole Node crashes.
+            // Here we're taking over the uncommitted txn and will dispatch it to the place where
+            // it is more appropriate to finish the job.
+            //
+            // If things go wrong before the commit, everything from this txn will never make it
+            // into the database and once the Node is up again it can do a scan including the part
+            // we failed on last time, yet completely out of danger doubling any of those received
+            // transactions.
+            Err(e) => Err(ReceivableDaoError::from(e)),
+        };
+
+        match accounting_result {
+            Ok(txn) => txn,
+            Err(e) => {
+                Self::log_more_money_received_error_with_roll_back(&self.logger, received_payments);
+                panic!(
+                    "Database corruption suspected during accounting newly received payments: {:?}",
+                    e
+                )
+            }
+        }
     }
 
     fn new_delinquencies(
@@ -176,7 +216,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 named_params! {
                     ":debt_threshold": checked_conversion::<u64,i64>(payment_thresholds.debt_threshold_gwei),
                     ":slope": slope,
-                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(now)),
+                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_unix_timestamp(now)),
                     ":permanent_debt_allowed_high_b": permanent_debt_allowed_high_b,
                     ":permanent_debt_allowed_low_b": permanent_debt_allowed_low_b
                 },
@@ -213,9 +253,10 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let variant_top = TopStmConfig{
+        let variant_top = TopStmConfig {
             limit_clause: "limit :limit_count",
-            gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
+            gwei_min_resolution_clause:
+                "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
             age_ordering_clause: "last_received_timestamp asc",
         };
         let variant_range = RangeStmConfig {
@@ -267,55 +308,96 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor: BigIntDbProcessor::default(),
+            big_int_db_processor: Box::new(BigIntDbProcessorReal::default()),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
 
-    fn try_multi_insert_payment(
-        &mut self,
+    fn process_received_payments_and_return_txn<'txn>(
+        big_int_db_processor: &dyn BigIntDbProcessor<ReceivableDaoReal>,
+        received_payments: &[BlockchainTransaction],
         timestamp: SystemTime,
-        payments: &[BlockchainTransaction],
-    ) -> Result<(), ReceivableDaoError> {
-        let xactn = self.conn.transaction()?;
-        {
-            for transaction in payments {
-                // the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair
-                // with the high bytes integer being negative
-                let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
-                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet";
-                let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
-                last_received_timestamp = :last_received where wallet_address = :wallet";
+        txn: TransactionSafeWrapper<'txn>,
+        logger: &Logger,
+    ) -> Result<TransactionSafeWrapper<'txn>, ReceivableDaoError> {
+        // The plus signs are intended. 'Subtraction' provided by the '.wei_change()' causes x of u128
+        // to become -x of i128 which produces a negative i64 integer in the column for the high bytes
+        let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received \
+                 where wallet_address = :wallet";
+        let update_clause_with_compensated_overflow =
+            "update receivable set balance_high_b = :balance_high_b, \
+                 balance_low_b = :balance_low_b, last_received_timestamp = :last_received \
+                 where wallet_address = :wallet";
 
-                self.big_int_db_processor.execute(
-                    Either::Right(&xactn),
-                    BigIntSqlConfig::new(
-                        main_sql,
-                        overflow_update_clause,
-                        SQLParamsBuilder::default()
-                            .key(WalletAddress(&transaction.from))
-                            .wei_change(Subtraction("balance", transaction.wei_amount))
-                            .other_params(vec![Param::new(
-                                (":last_received", &to_time_t(timestamp)),
-                                true,
-                            )])
-                            .build(),
-                    ),
-                )?
+        match received_payments.iter().try_for_each(|received_payment| {
+            let last_received_timestamp = to_unix_timestamp(timestamp);
+            let params = SQLParamsBuilder::default()
+                .key(WalletAddress(&received_payment.from))
+                .wei_change(WeiChange::new(
+                    "balance",
+                    received_payment.wei_amount,
+                    WeiChangeDirection::Subtraction,
+                ))
+                .other_params(vec![ParamByUse::BeforeAndAfterOverflow(
+                    DisplayableRusqliteParamPair::new(":last_received", &last_received_timestamp),
+                )])
+                .build();
+
+            let result = big_int_db_processor.execute(
+                Either::Right(&txn),
+                BigIntSqlConfig::new(main_sql, update_clause_with_compensated_overflow, params),
+            );
+
+            match result {
+                Ok(_) => Ok(()),
+                Err(BigIntDatabaseError::General(err_msg)) => {
+                    Err(ReceivableDaoError::RusqliteError(err_msg))
+                }
+                Err(BigIntDatabaseError::RowChangeMismatch { .. }) => {
+                    Self::verify_possibly_unknown_wallet(&txn, logger, received_payment)
+                }
             }
+        }) {
+            Ok(_) => Ok(txn),
+            Err(e) => Err(e),
         }
-        match xactn.commit() {
-            // Error response is untested here, because without a mockable Transaction, it's untestable.
-            Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
-            Ok(_) => Ok(()),
+    }
+
+    fn verify_possibly_unknown_wallet(
+        txn: &TransactionSafeWrapper,
+        logger: &Logger,
+        suspect: &BlockchainTransaction,
+    ) -> Result<(), ReceivableDaoError> {
+        let amount = suspect.wei_amount;
+        let address = &suspect.from;
+        let block_number = suspect.block_number;
+
+        match Self::is_row_present(txn, address) {
+            false => {
+                info!(logger,
+                "Received {amount} wei from unknown debtor {address} in the block {block_number}.");
+                Ok(())
+            }
+            true => Err(RusqliteError(format!(
+                "Update for received payment with {amount} wei ran without producing a change \
+                    in the database, despite the record for wallet {address} exists."
+            ))),
         }
+    }
+
+    fn is_row_present(conn: &TransactionSafeWrapper, wallet: &Wallet) -> bool {
+        conn.prepare("select * from receivable where wallet_address = ?")
+            .expect("internal sqlite error")
+            .exists(&[&wallet])
+            .expect("checking on a row failed")
     }
 
     fn create_receivable_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
@@ -333,7 +415,7 @@ impl ReceivableDaoReal {
                 Ok(ReceivableAccount {
                     wallet,
                     balance_wei: BigIntDivider::reconstitute(high_bytes, low_bytes),
-                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
+                    last_received_timestamp: utils::from_unix_timestamp(last_received_timestamp),
                 })
             }
             e => panic!(
@@ -365,39 +447,39 @@ impl ReceivableDaoReal {
         )
     }
 
-    fn more_money_received_pretty_error_log(
-        &self,
+    fn log_more_money_received_error_with_roll_back(
+        logger: &Logger,
         payments: &[BlockchainTransaction],
-        error: ReceivableDaoError,
     ) {
-        fn finalize_report(data: (Vec<String>, u128)) -> String {
-            let (report_lines, sum) = data;
-            plus(report_lines, format!("{:10} {:42} {:18}", "TOTAL", "", sum)).join("\n")
+        fn finalize_report(mut report_lines: Vec<String>, sum_of_all_txs: u128) -> String {
+            report_lines.push(format!("{:10} {:42} {:<18}", "TOTAL", "", sum_of_all_txs));
+            report_lines.join("\n")
         }
-        fn record_one_more_transaction(
-            acc: (Vec<String>, u128),
-            bc_tx: &BlockchainTransaction,
+        fn note_single_transaction(
+            (mut formatted_lines_so_far, sum_so_far): (Vec<String>, u128),
+            blockchain_tx: &BlockchainTransaction,
         ) -> (Vec<String>, u128) {
-            let lines_adjusted = plus(
-                acc.0,
-                format!(
-                    "{:10} {:42} {:18}",
-                    bc_tx.block_number, bc_tx.from, bc_tx.wei_amount
-                ),
-            );
-            let sum_so_far = acc.1 + bc_tx.wei_amount;
-            (lines_adjusted, sum_so_far)
+            let lines_extended_by_new_one = {
+                let new_line = format!(
+                    "{:<10} {:42} {:<18}",
+                    blockchain_tx.block_number, blockchain_tx.from, blockchain_tx.wei_amount
+                );
+                formatted_lines_so_far.push(new_line);
+                formatted_lines_so_far
+            };
+            let money_total_so_far = sum_so_far + blockchain_tx.wei_amount;
+            (lines_extended_by_new_one, money_total_so_far)
         }
+
         let init = (
             vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")],
             0_u128,
         );
-        let aggregated = payments.iter().fold(init, record_one_more_transaction);
+        let (report_lines, received_in_total) = payments.iter().fold(init, note_single_transaction);
         error!(
-            self.logger,
-            "Payment reception failed, rolling back: {:?}\n{}",
-            error,
-            finalize_report(aggregated)
+            logger,
+            "Payment reception failed, rolling back:\n{}",
+            finalize_report(report_lines, received_in_total)
         );
     }
 }
@@ -411,35 +493,33 @@ impl TableNameDAO for ReceivableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::db_access_objects::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::db_access_objects::utils::{
+        current_unix_timestamp, from_unix_timestamp, to_unix_timestamp, CustomQuery,
+    };
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
-        make_receivable_account,
+        make_receivable_account, trick_rusqlite_with_read_only_conn,
     };
-    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
+    use crate::database::db_initializer::{DbInitializationConfig, DbInitializer, DATABASE_FILE};
     use crate::database::db_initializer::{DbInitializerReal, ExternalData};
-    use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
+    use crate::database::test_utils::transaction_wrapper_mock::{
+        AlteredStmtBySQLOrigin, PrepareMethodResultsProducer, StmtTypeDirective,
+        TransactionInnerWrapperMockBuilder,
+    };
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::shared_schema::NeighborhoodMode;
-    use rusqlite::ToSql;
+    use rusqlite::{ffi, Connection, ErrorCode, OpenFlags, ToSql};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::path::Path;
-
-    #[test]
-    fn conversion_from_pce_works() {
-        let pce = PersistentConfigError::BadHexFormat("booga".to_string());
-
-        let subject = ReceivableDaoError::from(pce);
-
-        assert_eq!(
-            subject,
-            ReceivableDaoError::ConfigurationError("BadHexFormat(\"booga\")".to_string())
-        );
-    }
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
     fn factory_produces_connection_that_is_familiar_with_our_defined_sqlite_functions() {
@@ -480,10 +560,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn try_multi_insert_payment_handles_error_of_number_sign_check() {
+    fn more_money_received_handles_error_of_number_sign_check() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "try_multi_insert_payment_handles_error_of_number_sign_check",
+            "more_money_received_handles_error_of_number_sign_check",
         );
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
@@ -496,15 +576,15 @@ mod tests {
             wei_amount: u128::MAX,
         }];
 
-        let _ = subject.try_multi_insert_payment(SystemTime::now(), &payments.as_slice());
+        let _ = subject.more_money_received(SystemTime::now(), &payments);
     }
 
     #[test]
     #[should_panic(expected = "no such table: receivable")]
-    fn try_multi_insert_payment_handles_error_adding_receivables() {
+    fn more_money_received_handles_error_adding_receivables() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "try_multi_insert_payment_handles_error_adding_receivables",
+            "more_money_received_handles_error_adding_receivables",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -521,7 +601,7 @@ mod tests {
             wei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(SystemTime::now(), payments.as_slice());
+        let _ = subject.more_money_received(SystemTime::now(), &payments);
     }
 
     #[test]
@@ -530,8 +610,8 @@ mod tests {
             "receivable_dao",
             "more_money_receivable_works_for_new_address",
         );
-        let payment_time_t = to_time_t(SystemTime::now()) - 1111;
-        let payment_time = from_time_t(payment_time_t);
+        let payment_time_t = to_unix_timestamp(SystemTime::now()) - 1111;
+        let payment_time = from_unix_timestamp(payment_time_t);
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
@@ -546,7 +626,10 @@ mod tests {
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234);
-        assert_eq!(to_time_t(status.last_received_timestamp), payment_time_t);
+        assert_eq!(
+            to_unix_timestamp(status.last_received_timestamp),
+            payment_time_t
+        );
     }
 
     #[test]
@@ -582,8 +665,8 @@ mod tests {
             assert_eq!(status.wallet, wallet);
             assert_eq!(status.balance_wei, expected_balance);
             assert_eq!(
-                to_time_t(status.last_received_timestamp),
-                to_time_t(SystemTime::UNIX_EPOCH)
+                to_unix_timestamp(status.last_received_timestamp),
+                to_unix_timestamp(SystemTime::UNIX_EPOCH)
             );
         };
         assert_account(wallet, 1234 + 2345);
@@ -616,8 +699,8 @@ mod tests {
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234 + i64::MAX as i128);
         assert_eq!(
-            to_time_t(status.last_received_timestamp),
-            to_time_t(SystemTime::UNIX_EPOCH)
+            to_unix_timestamp(status.last_received_timestamp),
+            to_unix_timestamp(SystemTime::UNIX_EPOCH)
         );
     }
 
@@ -625,10 +708,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn more_money_receivable_works_for_overflow() {
+    fn more_money_receivable_works_for_128_bits_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "more_money_receivable_works_for_overflow",
+            "more_money_receivable_works_for_128_bits_overflow",
         );
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
@@ -637,6 +720,28 @@ mod tests {
         );
 
         let _ = subject.more_money_receivable(SystemTime::now(), &make_wallet("booga"), u128::MAX);
+    }
+
+    #[test]
+    fn more_money_receivable_handles_error() {
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "more_money_receivable_handles_error",
+        );
+        let wallet = make_wallet("blah");
+        let conn = receivable_read_only_conn(&home_dir);
+        let wrapped_conn = ConnectionWrapperReal::new(conn);
+        let subject = ReceivableDaoReal::new(Box::new(wrapped_conn));
+
+        let result = subject.more_money_receivable(SystemTime::now(), &wallet, 123456);
+
+        assert_eq!(
+            result,
+            Err(ReceivableDaoError::RusqliteError("Error from invalid upsert command for receivable table \
+            and change of 123456 wei to 'wallet_address = 0x00000000000000000000000000000000626c6168' \
+            with error 'attempt to write a readonly database'".to_string())
+            )
+        )
     }
 
     #[test]
@@ -704,111 +809,369 @@ mod tests {
             },
         ];
 
-        subject.more_money_received(payment_time, transactions);
+        let txn = subject.more_money_received(payment_time, &transactions);
 
+        txn.commit().unwrap();
         let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, first_expected_result);
         assert_eq!(
-            to_time_t(status1.last_received_timestamp),
-            to_time_t(payment_time)
+            to_unix_timestamp(status1.last_received_timestamp),
+            to_unix_timestamp(payment_time)
         );
         let status2 = subject.account_status(&debtor2).unwrap();
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance_wei, second_expected_result);
         assert_eq!(
-            to_time_t(status2.last_received_timestamp),
-            to_time_t(payment_time)
+            to_unix_timestamp(status2.last_received_timestamp),
+            to_unix_timestamp(payment_time)
         );
     }
 
     #[test]
-    fn more_money_received_throws_away_payments_from_unknown_addresses() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_received_throws_away_payments_from_unknown_addresses",
-        );
-        let debtor = make_wallet("unknown_wallet");
-        let mut subject = ReceivableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
-        let transactions = vec![BlockchainTransaction {
-            from: debtor.clone(),
-            wei_amount: 2300_u128,
-            block_number: 33_u64,
-        }];
-
-        subject.more_money_received(SystemTime::now(), transactions);
-
-        let status = subject.account_status(&debtor);
-        assert!(status.is_none());
-    }
-
-    #[test]
-    fn more_money_received_logs_when_try_multi_insert_payment_fails() {
+    fn more_money_received_ignores_unknown_address_without_affecting_the_good_ones() {
         init_test_logging();
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_received_logs_when_try_multi_insert_payment_fails",
-        );
+        let test_name =
+            "more_money_received_ignores_unknown_address_without_affecting_the_good_ones";
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
+        let previous_timestamp = UNIX_EPOCH;
+        let time_of_change = SystemTime::now()
+            .checked_sub(Duration::from_secs(1111))
+            .unwrap();
+        let first_tracked_wallet = make_wallet("abc");
+        let first_initial_balance = 2345;
+        let unknown_wallet = make_wallet("def");
+        let second_tracked_wallet = make_wallet("ghi");
+        let second_initial_balance = 8901;
+        let logger = Logger::new(test_name);
         let mut subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
-        // Sabotage the database so there'll be an error
-        {
-            let mut conn = DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::panic_on_migration())
-                .unwrap();
-            let xactn = conn.transaction().unwrap();
-            xactn
-                .prepare("drop table receivable")
-                .unwrap()
-                .execute([])
-                .unwrap();
-            xactn.commit().unwrap();
-        }
-        let payments = vec![
-            BlockchainTransaction {
-                block_number: 1234567890,
-                from: Wallet::new("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
-                wei_amount: 123456789123456789,
-            },
-            BlockchainTransaction {
-                block_number: 2345678901,
-                from: Wallet::new("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
-                wei_amount: 234567891234567891,
-            },
-            BlockchainTransaction {
-                block_number: 3456789012,
-                from: Wallet::new("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
-                wei_amount: 345678912345678912,
-            },
-        ];
+        subject
+            .more_money_receivable(
+                previous_timestamp,
+                &first_tracked_wallet,
+                first_initial_balance,
+            )
+            .unwrap();
+        subject
+            .more_money_receivable(
+                previous_timestamp,
+                &second_tracked_wallet,
+                second_initial_balance,
+            )
+            .unwrap();
+        subject.logger = logger;
+        let transaction_1 = BlockchainTransaction {
+            block_number: 4444,
+            from: first_tracked_wallet.clone(),
+            wei_amount: 1111,
+        };
+        let transaction_2 = BlockchainTransaction {
+            block_number: 4446,
+            from: unknown_wallet.clone(),
+            wei_amount: 2222,
+        };
+        let transaction_3 = BlockchainTransaction {
+            block_number: 4450,
+            from: second_tracked_wallet.clone(),
+            wei_amount: 9999,
+        };
+        let transactions = vec![transaction_1, transaction_2, transaction_3];
 
-        subject.more_money_received(SystemTime::now(), payments);
+        let txn = subject.more_money_received(time_of_change, transactions.as_slice());
 
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\
-            \"Error from invalid update command for receivable table and change of -123456789123456789 \
-             wei to 'wallet_address = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' with error 'no such table: receivable'\")\
-            \n\
-            Block #    Wallet                                     Amount            \n\
-            1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
-            2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\
-            3456789012 0xcccccccccccccccccccccccccccccccccccccccc 345678912345678912\n\
-            TOTAL                                                 703703592703703592"
+        txn.commit().unwrap();
+        let actual_record_1 = subject.account_status(&first_tracked_wallet).unwrap();
+        assert_eq!(actual_record_1.wallet, first_tracked_wallet);
+        assert_eq!(
+            actual_record_1.balance_wei,
+            first_initial_balance as i128 - 1111
+        );
+        assert_eq!(
+            to_unix_timestamp(actual_record_1.last_received_timestamp),
+            to_unix_timestamp(time_of_change)
+        );
+        let actual_record_2 = subject.account_status(&unknown_wallet);
+        assert!(actual_record_2.is_none());
+        let actual_record_3 = subject.account_status(&second_tracked_wallet).unwrap();
+        assert_eq!(actual_record_3.wallet, second_tracked_wallet);
+        assert_eq!(
+            actual_record_3.balance_wei,
+            second_initial_balance as i128 - 9999
+        );
+        assert_eq!(
+            to_unix_timestamp(actual_record_3.last_received_timestamp),
+            to_unix_timestamp(time_of_change)
+        );
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!(
+            "INFO: {test_name}: Received 2222 wei from unknown debtor {unknown_wallet} \
+            in the block 4446."
         ));
+        log_handler.exists_no_log_containing(&format!("ERROR: {test_name}: "));
     }
 
     #[test]
-    fn receivable_account_status_works_when_account_doesnt_exist() {
+    fn more_money_received_general_db_error() {
+        init_test_logging();
+        let test_name = "more_money_received_general_db_error";
+        let data_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
+        let time_of_change = SystemTime::now()
+            .checked_sub(Duration::from_secs(1111))
+            .unwrap();
+        let wallet = make_wallet("abc");
+        {
+            DbInitializerReal::default()
+                .initialize(&data_dir, DbInitializationConfig::test_default())
+                .unwrap();
+        };
+        let conn = Connection::open_with_flags(
+            data_dir.join(DATABASE_FILE),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let conn = ConnectionWrapperReal::new(conn);
+        let mut subject = ReceivableDaoReal::new(Box::new(conn));
+        let transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: wallet,
+            wei_amount: 45_678,
+        };
+        let transactions = vec![transaction];
+
+        let caught_err = catch_unwind(AssertUnwindSafe(|| {
+            let _ = subject.more_money_received(time_of_change, transactions.as_slice());
+        }))
+        .unwrap_err();
+
+        let panic_msg = caught_err.downcast_ref::<String>().unwrap();
+        let expected_panic_fragment = format!(
+            "Error from invalid update command for receivable table and change of -45678 wei to \
+            'wallet_address = 0x0000000000000000000000000000000000616263' with error 'attempt to \
+            write a readonly database'"
+        );
+        assert!(
+            panic_msg.contains(&expected_panic_fragment),
+            "Actual panic msg: {} does not contain this fragment {}",
+            panic_msg,
+            expected_panic_fragment
+        );
+        // The background thread is used just for this log assertion
+        TestLogHandler::new().exists_no_log_containing(&format!("INFO: {test_name}: "));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database corruption suspected during accounting newly received payments: \
+        RusqliteError(\"SqliteFailure(Error { code: InternalMalfunction, extended_code: 0 }, \
+        Some(\\\"blah\\\"))\")"
+    )]
+    fn more_money_received_hits_error_from_transaction_initialization() {
+        let mut subject = {
+            let conn = ConnectionWrapperMock::default().transaction_result(Err(
+                rusqlite::Error::SqliteFailure(
+                    ffi::Error {
+                        code: ErrorCode::InternalMalfunction,
+                        extended_code: 0,
+                    },
+                    Some("blah".to_string()),
+                ),
+            ));
+            ReceivableDaoReal::new(Box::new(conn))
+        };
+        let transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: make_wallet("abc"),
+            wei_amount: 1,
+        };
+        let transactions = vec![transaction];
+
+        subject.more_money_received(SystemTime::now(), &transactions);
+    }
+
+    #[test]
+    fn more_money_received_leaves_transactions_uncommitted_if_panic_occurs() {
+        init_test_logging();
+        let test_name = "more_money_received_leaves_transactions_uncommitted_if_panic_occurs";
+        let data_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
+        let time_of_change = SystemTime::now()
+            .checked_sub(Duration::from_secs(1111))
+            .unwrap();
+        let first_wallet = make_wallet("abc");
+        let first_initial_balance = 123_456;
+        let first_previous_timestamp = UNIX_EPOCH;
+        let second_wallet = make_wallet("def");
+        let receivable_dao = {
+            let conn = DbInitializerReal::default()
+                .initialize(&data_dir, DbInitializationConfig::test_default())
+                .unwrap();
+            let dao = ReceivableDaoReal::new(conn);
+            dao.more_money_receivable(
+                first_previous_timestamp,
+                &first_wallet,
+                first_initial_balance,
+            )
+            .unwrap();
+            dao
+        };
+        let prod_code_calls_conn = DbInitializerReal::default()
+            .initialize(&data_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let panic_causing_conn = {
+            let db_path = data_dir.join(DATABASE_FILE);
+            let flags = OpenFlags::SQLITE_OPEN_READ_ONLY;
+            let conn = Connection::open_with_flags(&db_path, flags).unwrap();
+            Box::new(ConnectionWrapperReal::new(conn))
+        };
+        let prepare_results =
+            PrepareMethodResultsProducer::construct_with_prod_code_and_altered_stmts(
+                prod_code_calls_conn,
+                Some(panic_causing_conn),
+                vec![
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::ExecuteProdCode,
+                    StmtTypeDirective::UseAlteredStmt(
+                        AlteredStmtBySQLOrigin::SQLIdenticalWithProdCode,
+                    ),
+                ],
+            );
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default()
+            .prepare_params(&prepare_params_arc)
+            .prepare_results(prepare_results);
+        let mocked_transaction = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let mocked_conn =
+            Box::new(ConnectionWrapperMock::default().transaction_result(Ok(mocked_transaction)));
+        let mut subject = ReceivableDaoReal::new(mocked_conn);
+        subject.logger = Logger::new(test_name);
+        let first_transaction = BlockchainTransaction {
+            block_number: 123_456,
+            from: first_wallet.clone(),
+            wei_amount: 45_678,
+        };
+        let second_transaction = BlockchainTransaction {
+            block_number: 789_123,
+            from: second_wallet,
+            wei_amount: 111_222,
+        };
+        let transactions = vec![first_transaction, second_transaction];
+
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = subject.more_money_received(time_of_change, &transactions);
+        }));
+
+        let caught_panic = result.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        let expected_panic_msg =
+            "Database corruption suspected during accounting newly received payments: \
+            RusqliteError(\"Error from invalid update command for receivable table and change of \
+            -111222 wei to 'wallet_address = 0x0000000000000000000000000000000000646566' with error \
+            'attempt to write a readonly database'\")";
+        assert_eq!(panic_msg, &expected_panic_msg);
+        let prepare_params = prepare_params_arc.lock().unwrap();
+        // Asserting that we did perform the first transaction completely which is a process
+        // composed of three SQL statements if it includes handling an overflow like here
+        assert_eq!(&prepare_params[0..3],
+            &[
+              "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b \
+              = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address \
+              = :wallet",
+              "select balance_high_b, balance_low_b from receivable where wallet_address = \
+              '0x0000000000000000000000000000000000616263'",
+              "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
+              last_received_timestamp = :last_received where wallet_address = :wallet"
+            ]);
+        // The first transaction did not affect the db, was rolled back
+        let account_status = receivable_dao.account_status(&first_wallet);
+        assert_eq!(
+            account_status,
+            Some(ReceivableAccount {
+                wallet: first_wallet,
+                balance_wei: first_initial_balance as i128,
+                last_received_timestamp: first_previous_timestamp,
+            })
+        );
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_no_log_containing(&format!("INFO: {test_name}: "));
+        log_handler.exists_log_containing(&format!(
+            "ERROR: {test_name}: Payment reception failed, rolling back:\n\
+            Block #    Wallet                                     Amount            \n\
+            123456     0x0000000000000000000000000000000000616263 45678             \n\
+            789123     0x0000000000000000000000000000000000646566 111222            \n\
+            TOTAL                                                 156900"
+        ));
+        // The test framework of TransactionWrapperInnerMock with its PrepareResultsDispatcher is
+        // one of the smarter tools you can meet.
+        //
+        // It allows to stimulate a certain error to be thrown out at the execution of
+        // this given Statement (with all the supplied parameters if any) that we make sure will be
+        // made inside the test tool at the right time and pushed out into the ongoing
+        // operation requiring it by the prod code, but given the conditions, causing an error right
+        // in the next moment. This way, the reaction is medium by which we can control the course
+        // of the code flow.
+        //
+        // As far as that it hasn't been a big deal. There is an extra concern though. If and how
+        // we can follow the real life behaviour given every transaction needs to be eventually
+        // committed by a function call in our code.
+        //
+        // Why is this important? You should know that the mocked wrapper has its foundation in
+        // its own transaction it carries around with it and that is supposed to follow how we work
+        // with the standard one: it can be used for any number of operations but the final step,
+        // the commit, must come in place, otherwise all those operations, even if succeeding
+        // on its own, will be discarded and have no impact on the database. We need to stay true to
+        // this because there might be tests, like this one, which are interested in the final state,
+        // looking into the database and wanting to see no changes there, because that is exactly
+        // what we would've seen with the pure version of the code.
+        //
+        // Another proof of the correct course of events in here is that even though we hadn't
+        // given any prepared result for the 'commit()' method, the test did not panic demanding
+        // a result to be used by the mock. Besides that, another way of looking at the evidence
+        // given by this test is that if the code had been supposed to commit the transactions
+        // separately, while the first one is proper and therefore it would've allowed that, we
+        // would necessarily have come across this call of 'commit()', crushing, yet we didn't.
+    }
+
+    #[test]
+    fn verify_possibly_unknown_wallet_returns_error_when_the_row_for_this_wallet_exists() {
+        let test_name =
+            "verify_possibly_unknown_wallet_returns_error_when_the_row_for_this_wallet_exists";
+        let home_dir = ensure_node_home_directory_exists("receivable", test_name);
+        let mut conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let wallet = make_wallet("blah");
+        conn.prepare(
+            "insert into receivable ( wallet_address, balance_high_b, balance_low_b, \
+            last_received_timestamp ) values ( ?, 111, 222, 111222333 )",
+        )
+        .unwrap()
+        .execute(&[&wallet])
+        .unwrap();
+        let suspect = BlockchainTransaction {
+            block_number: 1234,
+            from: wallet,
+            wei_amount: 1_000_000_000,
+        };
+        let txn = conn.transaction().unwrap();
+        let logger = Logger::new(test_name);
+
+        let result = ReceivableDaoReal::verify_possibly_unknown_wallet(&txn, &logger, &suspect);
+
+        let expected_panic_msg = "Update for received payment with 1000000000 wei ran \
+        without producing a change in the database, despite the record for wallet \
+        0x00000000000000000000000000000000626c6168 exists.";
+        assert_eq!(result, Err(RusqliteError(expected_panic_msg.to_string())))
+    }
+
+    #[test]
+    fn receivable_account_status_works_when_account_does_not_exist() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "receivable_account_status_works_when_account_doesnt_exist",
+            "receivable_account_status_works_when_account_does_not_exist",
         );
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
@@ -843,37 +1206,37 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
         not_delinquent_inside_grace_period.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) + 2);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
         not_delinquent_after_grace_below_slope.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei - 2);
         not_delinquent_after_grace_below_slope.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
         delinquent_above_slope_after_grace.balance_wei =
             gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 2);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
         not_delinquent_below_slope_before_stop.balance_wei =
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
         not_delinquent_below_slope_before_stop.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 2);
+            from_unix_timestamp(payment_thresholds.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
         delinquent_above_slope_before_stop.balance_wei =
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2);
         delinquent_above_slope_before_stop.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 1);
+            from_unix_timestamp(payment_thresholds.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
         not_delinquent_above_slope_after_stop.balance_wei =
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1);
         not_delinquent_above_slope_after_stop.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_thru_decreasing(now) - 2);
+            from_unix_timestamp(payment_thresholds.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
@@ -884,7 +1247,7 @@ mod tests {
         add_receivable_account(&conn, &not_delinquent_above_slope_after_stop);
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert_contains(&result, &delinquent_above_slope_after_grace);
         assert_contains(&result, &delinquent_above_slope_before_stop);
@@ -901,15 +1264,15 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let mut not_delinquent = make_receivable_account(1234, false);
         not_delinquent.balance_wei = gwei_to_wei(105);
         not_delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
         delinquent.balance_wei = gwei_to_wei(105);
         delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
@@ -917,7 +1280,7 @@ mod tests {
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert_contains(&result, &delinquent);
         assert_eq!(result.len(), 1);
@@ -933,15 +1296,15 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let mut not_delinquent = make_receivable_account(1234, false);
         not_delinquent.balance_wei = gwei_to_wei(600);
         not_delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
         delinquent.balance_wei = gwei_to_wei(600);
         delinquent.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
@@ -949,7 +1312,7 @@ mod tests {
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert_contains(&result, &delinquent);
         assert_eq!(result.len(), 1);
@@ -965,15 +1328,15 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let mut existing_delinquency = make_receivable_account(1234, true);
         existing_delinquency.balance_wei = gwei_to_wei(250);
         existing_delinquency.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
         new_delinquency.balance_wei = gwei_to_wei(250);
         new_delinquency.last_received_timestamp =
-            from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
+            from_unix_timestamp(payment_thresholds.sugg_and_grace(now) - 1);
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
@@ -984,7 +1347,7 @@ mod tests {
         add_banned_account(&conn, &existing_delinquency);
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert_contains(&result, &new_delinquency);
         assert_eq!(result.len(), 1);
@@ -1000,7 +1363,7 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_work_for_still_empty_tables",
@@ -1008,7 +1371,7 @@ mod tests {
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert!(result.is_empty())
     }
@@ -1028,24 +1391,24 @@ mod tests {
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
-        let now = to_time_t(SystemTime::now());
+        let now = to_unix_timestamp(SystemTime::now());
         let sugg_and_grace = payment_thresholds.sugg_and_grace(now);
         let too_young_new_delinquency = ReceivableAccount {
             wallet: make_wallet("abc123"),
             balance_wei: 123_456_789_101_112,
-            last_received_timestamp: from_time_t(sugg_and_grace + 1),
+            last_received_timestamp: from_unix_timestamp(sugg_and_grace + 1),
         };
         let ok_new_delinquency = ReceivableAccount {
             wallet: make_wallet("aaa999"),
             balance_wei: 123_456_789_101_112,
-            last_received_timestamp: from_time_t(sugg_and_grace - 1),
+            last_received_timestamp: from_unix_timestamp(sugg_and_grace - 1),
         };
         let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &too_young_new_delinquency);
         add_receivable_account(&conn, &ok_new_delinquency.clone());
         let subject = ReceivableDaoReal::new(conn);
 
-        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+        let result = subject.new_delinquencies(from_unix_timestamp(now), &payment_thresholds);
 
         assert_eq!(result, vec![ok_new_delinquency])
     }
@@ -1176,7 +1539,7 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_default_ordering() {
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
             "custom_query_in_top_records_mode_default_ordering",
@@ -1196,17 +1559,17 @@ mod tests {
                 ReceivableAccount {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 32_000_000_200,
-                    last_received_timestamp: from_time_t(now - 86_480),
+                    last_received_timestamp: from_unix_timestamp(now - 86_480),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: 1_000_000_001,
-                    last_received_timestamp: from_time_t(now - 222_000),
+                    last_received_timestamp: from_unix_timestamp(now - 222_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
                     balance_wei: 1_000_000_001,
-                    last_received_timestamp: from_time_t(now - 86_480),
+                    last_received_timestamp: from_unix_timestamp(now - 86_480),
                 },
             ]
         );
@@ -1214,7 +1577,7 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_ordered_by_age() {
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
             "custom_query_in_top_records_mode_ordered_by_age",
@@ -1234,17 +1597,17 @@ mod tests {
                 ReceivableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: 1_000_000_001,
-                    last_received_timestamp: from_time_t(now - 222_000),
+                    last_received_timestamp: from_unix_timestamp(now - 222_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 32_000_000_200,
-                    last_received_timestamp: from_time_t(now - 86_480),
+                    last_received_timestamp: from_unix_timestamp(now - 86_480),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
                     balance_wei: 1_000_000_001,
-                    last_received_timestamp: from_time_t(now - 86_480),
+                    last_received_timestamp: from_unix_timestamp(now - 86_480),
                 },
             ]
         );
@@ -1273,7 +1636,7 @@ mod tests {
     fn custom_query_in_range_mode() {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
-        let now = now_time_t();
+        let now = current_unix_timestamp();
         let main_test_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
             insert(
                 conn,
@@ -1333,7 +1696,7 @@ mod tests {
                 max_age_s: 99000,
                 min_amount_gwei: -560000,
                 max_amount_gwei: 1_100_000_000,
-                timestamp: from_time_t(now),
+                timestamp: from_unix_timestamp(now),
             })
             .unwrap();
 
@@ -1343,22 +1706,22 @@ mod tests {
                 ReceivableAccount {
                     wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
                     balance_wei: gwei_to_wei(1_050_444_230),
-                    last_received_timestamp: from_time_t(now - 66_244),
+                    last_received_timestamp: from_unix_timestamp(now - 66_244),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: gwei_to_wei(1_000_000_230),
-                    last_received_timestamp: from_time_t(now - 86_000),
+                    last_received_timestamp: from_unix_timestamp(now - 86_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
                     balance_wei: gwei_to_wei(1_000_000_230),
-                    last_received_timestamp: from_time_t(now - 70_000),
+                    last_received_timestamp: from_unix_timestamp(now - 70_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x8888888888888888888888888888888888888888"),
                     balance_wei: gwei_to_wei(-90),
-                    last_received_timestamp: from_time_t(now - 66_000),
+                    last_received_timestamp: from_unix_timestamp(now - 66_000),
                 }
             ]
         );
@@ -1366,20 +1729,20 @@ mod tests {
 
     #[test]
     fn range_query_does_not_display_values_from_below_1_gwei() {
-        let timestamp1 = now_time_t() - 5000;
-        let timestamp2 = now_time_t() - 3232;
+        let timestamp1 = current_unix_timestamp() - 5000;
+        let timestamp2 = current_unix_timestamp() - 3232;
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
             insert(
                 conn,
                 "0x1111111111111111111111111111111111111111",
                 999_999_999, //smaller than 1 gwei
-                now_time_t() - 11_001,
+                current_unix_timestamp() - 11_001,
             );
             insert(
                 conn,
                 "0x2222222222222222222222222222222222222222",
                 -999_999_999, //smaller than -1 gwei
-                now_time_t() - 5_606,
+                current_unix_timestamp() - 5_606,
             );
             insert(
                 conn,
@@ -1415,12 +1778,12 @@ mod tests {
                 ReceivableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
                     balance_wei: 30_000_300_000,
-                    last_received_timestamp: from_time_t(timestamp1),
+                    last_received_timestamp: from_unix_timestamp(timestamp1),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance_wei: -2_000_300_000,
-                    last_received_timestamp: from_time_t(timestamp2),
+                    last_received_timestamp: from_unix_timestamp(timestamp2),
                 }
             ]
         )
@@ -1434,7 +1797,7 @@ mod tests {
             .unwrap();
 
         let insert = insert_account_by_separate_values;
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = utils::current_unix_timestamp();
         insert(
             &*conn,
             "0x1111111111111111111111111111111111111111",
@@ -1496,7 +1859,7 @@ mod tests {
             &account.wallet,
             &high_bytes,
             &low_bytes,
-            &to_time_t(account.last_received_timestamp),
+            &to_unix_timestamp(account.last_received_timestamp),
         ];
         stmt.execute(params).unwrap();
     }
@@ -1521,6 +1884,10 @@ mod tests {
             .prepare("insert into banned (wallet_address) values (?)")
             .unwrap();
         stmt.execute(&[&account.wallet]).unwrap();
+    }
+
+    fn receivable_read_only_conn(path: &Path) -> Connection {
+        trick_rusqlite_with_read_only_conn(path, DbInitializerReal::create_receivable_table)
     }
 
     fn custom_query_test_body_for_receivable<F>(

@@ -1,6 +1,6 @@
 [package]
 name = "multinode_integration_tests"
-version = "0.7.3"
+version = "0.9.1"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 description = ""
@@ -13,12 +13,13 @@ crossbeam-channel = "0.5.1"
 ethereum-types = { workspace = true }
 ethsign-crypto = "0.3.0"
 futures = { workspace = true }
+ip_country = { path = "../ip_country"}
 itertools = "0.13.0"
 lazy_static = "1.4.0"
 log = "0.4.14"
 masq_lib = { path = "../masq_lib" }
 native-tls = "0.2.12"
-node = { path = "../node", features = [ "expose_test_privates" ] }
+node = { path = "../node" }
 pretty-hex = "0.4.0"
 primitive-types = {version = "0.12.2", default-features = false, features = ["default", "rlp", "serde"] }
 regex = "1.10.5"

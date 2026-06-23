@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::proxy_server::protocol_pack::{Host, ProtocolPack, ServerImpersonator};
+use crate::proxy_server::protocol_pack::{ProtocolPack, ServerImpersonator};
 use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::host::Host;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
@@ -12,6 +13,7 @@ lazy_static! {
     static ref HOST_PATTERN: Regex = Regex::new(r"^(?:https?://)?([^\s/]+)").expect("bad regex");
 }
 
+#[derive(Clone, Copy)]
 pub struct HttpProtocolPack {}
 
 impl ProtocolPack for HttpProtocolPack {
@@ -24,14 +26,22 @@ impl ProtocolPack for HttpProtocolPack {
     }
 
     fn find_host(&self, data: &PlainData) -> Option<Host> {
-        match HttpProtocolPack::find_url_host(data.as_slice()) {
+        match HttpProtocolPack::find_header_host(data.as_slice()) {
             Some(host) => Some(host),
-            None => HttpProtocolPack::find_header_host(data.as_slice()),
+            None => HttpProtocolPack::find_url_host(data.as_slice()),
         }
     }
 
     fn server_impersonator(&self) -> Box<dyn ServerImpersonator> {
         Box::new(ServerImpersonatorHttp {})
+    }
+
+    fn describe_packet(&self, data: &PlainData) -> String {
+        if data.as_slice().starts_with(b"HTTP/") {
+            self.describe_response(data)
+        } else {
+            self.describe_request(data)
+        }
     }
 }
 
@@ -67,12 +77,15 @@ impl HttpProtocolPack {
         match parts.len() {
             1 => Some(Host {
                 name: parts.remove(0).to_string(),
-                port: None,
+                port: HTTP_PORT,
             }),
-            2 => Some(Host {
-                name: parts.remove(0).to_string(),
-                port: Self::port_from_string(parts.remove(0).to_string()),
-            }),
+            2 => {
+                let name = parts.remove(0).to_string();
+                match Self::port_from_string(parts.remove(0).to_string()) {
+                    Ok(port) => Some(Host { name, port }),
+                    Err(_) => None,
+                }
+            }
             _ => None,
         }
     }
@@ -91,8 +104,87 @@ impl HttpProtocolPack {
         )
     }
 
-    fn port_from_string(port_str: String) -> Option<u16> {
-        port_str.parse::<u16>().ok()
+    fn port_from_string(port_str: String) -> Result<u16, String> {
+        match port_str.parse::<u16>() {
+            Err(_) => Err(format!("Port '{}' is not a number", port_str)),
+            Ok(port) => Ok(port),
+        }
+    }
+
+    fn describe_request(&self, data: &PlainData) -> String {
+        let first_line_end = data
+            .as_slice()
+            .iter()
+            .position(|&b| b == b'\r')
+            .unwrap_or(data.len());
+        let first_line = &data.as_slice()[0..first_line_end];
+        let mut parts = first_line.split(|&b| b == b' ');
+        if let (Some(method_bytes), Some(path_bytes), Some(http_version_bytes)) =
+            (parts.next(), parts.next(), parts.next())
+        {
+            let method = Self::from_utf8(method_bytes);
+            let path = Self::from_utf8(path_bytes);
+            let http_version = Self::from_utf8(http_version_bytes);
+            if let Some(host) = self.find_host(data) {
+                return if path.starts_with('/') {
+                    format!(
+                        "{} {} request to {}{}",
+                        http_version, method, host.name, path
+                    )
+                } else {
+                    format!("{} {} request to {}", http_version, method, path)
+                };
+            } else {
+                return format!(
+                    "{} {} request to unknown host: {}",
+                    http_version, method, path
+                );
+            }
+        }
+        format!(
+            "Malformed HTTP request: {}",
+            Self::truncate_data_as_string(data, 50)
+        )
+    }
+
+    fn describe_response(&self, data: &PlainData) -> String {
+        let first_line_end = data
+            .as_slice()
+            .iter()
+            .position(|&b| b == b'\r')
+            .unwrap_or(data.as_slice().len());
+        let first_line = &data.as_slice()[0..first_line_end];
+        let mut parts = first_line.split(|&b| b == b' ');
+        if let (Some(http_version_bytes), Some(status_code_bytes), Some(status_text_bytes)) =
+            (parts.next(), parts.next(), parts.next())
+        {
+            let http_with_version = Self::from_utf8(http_version_bytes);
+            let status_code = Self::from_utf8(status_code_bytes);
+            let status_text = Self::from_utf8(status_text_bytes);
+            return format!(
+                "{} response with status {} {}",
+                http_with_version, status_code, status_text
+            );
+        }
+        format!(
+            "Malformed HTTP response: {}",
+            Self::truncate_data_as_string(data, 50)
+        )
+    }
+
+    fn truncate_data_as_string(data: &PlainData, truncate_at: usize) -> String {
+        if data.as_slice().len() > truncate_at {
+            format!(
+                "'{}'...",
+                String::from_utf8_lossy(&data.as_slice()[0..truncate_at])
+            )
+        } else {
+            format!("'{}'", String::from_utf8_lossy(data.as_slice()))
+        }
+    }
+
+    fn from_utf8(bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).to_string()
     }
 }
 
@@ -157,7 +249,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("header.host.com"), host.name);
+        assert_eq!(host, Host::new("header.host.com", HTTP_PORT));
     }
 
     #[test]
@@ -179,31 +271,31 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("192.168.1.230"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, Host::new("192.168.1.230", HTTP_PORT));
     }
 
     #[test]
-    fn returns_host_name_and_port_from_url_if_both_exist() {
+    fn returns_host_name_and_port_from_header_if_both_exist() {
         let data = PlainData::new(b"OPTIONS http://top.host.com:1234/index.html HTTP/1.1\r\nHost: header.host.com:5432\r\n\r\nbodybody");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(Some(1234), host.port);
+        assert_eq!(host, Host::new("header.host.com", 5432));
     }
 
     #[test]
     fn returns_host_name_from_http_url_if_header_doesnt_exist() {
+        // Note: that "Host: body.host.com" looks like a header, but it's not: it's content.
         let data = PlainData::new(b"DELETE http://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
+        assert_eq!(host.name, String::from("top.host.com"));
     }
 
     #[test]
     fn returns_host_name_from_https_url_if_header_doesnt_exist() {
+        // Note: that "Host: body.host.com" looks like a header, but it's not: it's content.
         let data = PlainData::new(b"PUT https://top.host.com/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
@@ -217,25 +309,22 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
+        assert_eq!(host, Host::new("top.host.com", HTTP_PORT));
     }
 
     #[test]
     fn returns_host_name_from_url_when_no_scheme() {
-        let data = PlainData::new(
-            b"CONNECT good.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
-        );
+        let data = PlainData::new(b"GET good.url.dude/path.html HTTP/1.0\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("good.url.dude"), host.name);
+        assert_eq!(host.name, String::from("good.url.dude"));
     }
 
     #[test]
     fn can_handle_domain_that_starts_with_http() {
-        let data = PlainData::new(
-            b"CONNECT http.url.dude/path.html HTTP/1.1\r\nHost: wrong.url.dude\r\n\r\n",
-        );
+        let data =
+            PlainData::new(b"GET bad.url.dude/path.html HTTP/1.1\r\nHost: http.url.dude\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
@@ -248,8 +337,7 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(Some(8080), host.port);
+        assert_eq!(host, Host::new("top.host.com", 8080));
     }
 
     #[test]
@@ -265,39 +353,27 @@ mod tests {
     fn specifying_a_non_numeric_port_in_the_url() {
         let data = PlainData::new(b"HEAD http://top.host.com:nanan/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
-    fn specifying_a_missing_port_in_the_url() {
+    fn cant_extract_top_host_if_port_has_syntax_error() {
         let data = PlainData::new(b"HEAD http://top.host.com:/index.html HTTP/1.1\r\nContent-Length: 23\r\n\r\nHost: body.host.com\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("top.host.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
-    fn from_integration_test() {
+    fn explicit_port_is_80_if_it_was_not_specified() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("www.example.com"), host.name);
-    }
-
-    #[test]
-    fn explicit_port_is_none_if_it_was_not_specified() {
-        let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
-
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, Host::new("www.example.com", HTTP_PORT));
     }
 
     #[test]
@@ -306,28 +382,25 @@ mod tests {
 
         let host = HttpProtocolPack {}.find_host(&data).unwrap();
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(Some(8080), host.port);
+        assert_eq!(host, Host::new("www.example.com", 8080));
     }
 
     #[test]
     fn specifying_a_non_numeric_port_in_host_header() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com:nannan\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
     fn specifying_a_missing_port_in_host_header() {
         let data = PlainData::new(b"GET / HTTP/1.1\r\nHost: www.example.com:\r\n\r\n");
 
-        let host = HttpProtocolPack {}.find_host(&data).unwrap();
+        let host = HttpProtocolPack {}.find_host(&data);
 
-        assert_eq!(String::from("www.example.com"), host.name);
-        assert_eq!(None, host.port);
+        assert_eq!(host, None);
     }
 
     #[test]
@@ -348,5 +421,84 @@ mod tests {
     fn is_connect_false_when_there_is_no_space_after_the_method() {
         let data = b"CONNECTX";
         assert!(!HttpProtocolPack::is_connect(data));
+    }
+
+    #[test]
+    fn describe_packet_works_on_get_request_with_header_host() {
+        let data =
+            PlainData::new(b"GET /index.html?item=booga HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(
+            result,
+            "HTTP/1.1 GET request to www.example.com/index.html?item=booga"
+        );
+    }
+
+    #[test]
+    fn describe_packet_works_on_post_request_with_url_host() {
+        let data = PlainData::new(
+            b"POST www.example.com/person/1234 HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
+        );
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(
+            result,
+            "HTTP/1.1 POST request to www.example.com/person/1234"
+        );
+    }
+
+    #[test]
+    fn describe_packet_works_on_unexpected_request_with_unspecified_host() {
+        let data = PlainData::new(b"BOOGA /person/1234 HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}");
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(
+            result,
+            "HTTP/1.1 BOOGA request to unknown host: /person/1234"
+        );
+    }
+
+    #[test]
+    fn describe_packet_works_on_malformed_request() {
+        let data = PlainData::new(b"Fourscore_and_seven_years_ago_our_fathers_brought_forth_on_this_continent_a_new_nation,_conceived_in_liberty_and_dedicated_to_the_proposition_that_all_men_are_created_equal.");
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(
+            result,
+            "Malformed HTTP request: 'Fourscore_and_seven_years_ago_our_fathers_brought_'..."
+        );
+    }
+
+    #[test]
+    fn describe_packet_works_on_200_response() {
+        let data =
+            PlainData::new(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html></html>");
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(result, "HTTP/1.1 response with status 200 OK");
+    }
+
+    #[test]
+    fn describe_packet_works_on_malformed_response() {
+        let data = PlainData::new(b"HTTP/Fourscore_and_seven_years_ago_our_fathers_brought_forth_on_this_continent_a_new_nation,_conceived_in_liberty_and_dedicated_to_the_proposition_that_all_men_are_created_equal.");
+        let subject = HttpProtocolPack {};
+
+        let result = subject.describe_packet(&data);
+
+        assert_eq!(
+            result,
+            "Malformed HTTP response: 'HTTP/Fourscore_and_seven_years_ago_our_fathers_bro'..."
+        );
     }
 }

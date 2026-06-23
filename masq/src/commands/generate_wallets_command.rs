@@ -15,10 +15,11 @@ use crate::terminal::TerminalWriter;
 use clap::builder::{OsStr, Str, ValueRange};
 use clap::{value_parser, Arg, Command as ClapCommand};
 use lazy_static::lazy_static;
-use masq_lib::implement_as_any;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiGenerateSeedSpec, UiGenerateWalletsRequest, UiGenerateWalletsResponse};
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
+use masq_lib::utils::{to_string, DEFAULT_CONSUMING_DERIVATION_PATH};
 
 lazy_static! {
     static ref CONSUMING_PATH_HELP: String = format!(
@@ -193,10 +194,10 @@ impl GenerateWalletsCommand {
 
         let consuming_path_opt = matches
             .get_one::<String>("consuming-path")
-            .map(|p| p.to_string());
+            .map(to_string);
         let earning_path_opt = matches
             .get_one::<String>("earning-path")
-            .map(|p| p.to_string());
+            .map(to_string);
         let seed_spec_opt = if consuming_path_opt.is_some() || earning_path_opt.is_some() {
             Some(SeedSpec {
                 word_count: *matches
@@ -207,7 +208,7 @@ impl GenerateWalletsCommand {
                     .expect("language not properly defaulted"),
                 passphrase_opt: matches
                     .get_one::<String>("passphrase")
-                    .map(|s| s.to_string()),
+                    .map(to_string),
             })
         } else {
             None
@@ -286,7 +287,7 @@ impl Command for GenerateWalletsCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn generate_wallets_subcommand() -> ClapCommand {

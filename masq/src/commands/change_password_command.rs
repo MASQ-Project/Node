@@ -14,6 +14,8 @@ use masq_lib::messages::{
 };
 #[cfg(test)]
 use std::any::Any;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
+use std::io::Write;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
@@ -86,7 +88,7 @@ impl Command for ChangePasswordCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn change_password_subcommand() -> ClapCommand {

@@ -14,6 +14,8 @@ use masq_lib::test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Formatter};
 
+pub const DEFAULT_TRANSACT_TIMEOUT_MILLIS: u64 = 1000;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
     ConnectionRefused(String),
@@ -149,6 +151,12 @@ mod tests {
         TrafficConversionError, UiTrafficConverter, UnmarshalError,
     };
     use masq_lib::utils::{find_free_port, running_test};
+    use test_utilities::byte_array_reader_writer::{ByteArrayReader, ByteArrayWriter};
+
+    #[test]
+    fn constant_has_correct_values() {
+        assert_eq!(DEFAULT_TRANSACT_TIMEOUT_MILLIS, 1000);
+    }
 
     #[test]
     fn error_conversion_happy_path() {
@@ -209,6 +217,51 @@ mod tests {
         assert_eq!(subject.connection.is_closing(), false)
     }
 
+    #[test]
+    fn transact_works_when_everythings_fine() {
+        running_test();
+        let port = find_free_port();
+        let stdin = ByteArrayReader::new(b"This is stdin.");
+        let stdout = ByteArrayWriter::new();
+        let stdout_arc = stdout.inner_arc();
+        let stderr = ByteArrayWriter::new();
+        let stderr_arc = stderr.inner_arc();
+        let server = MockWebSocketsServer::new(port).queue_response(UiShutdownResponse {}.tmb(1));
+        let stop_handle = server.start();
+        let broadcast_handle = BroadcastHandleInactive;
+
+        let mut subject = CommandContextReal::new(port, None, Box::new(broadcast_handle)).unwrap();
+        subject.stdin = Box::new(stdin);
+        subject.stdout = Box::new(stdout);
+        subject.stderr = Box::new(stderr);
+
+        let response = subject
+            .transact(
+                UiShutdownRequest {}.tmb(1),
+                TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+            )
+            .unwrap();
+        let mut input = String::new();
+        subject.stdin().read_to_string(&mut input).unwrap();
+        write!(subject.stdout(), "This is stdout.").unwrap();
+        write!(subject.stderr(), "This is stderr.").unwrap();
+
+        assert_eq!(
+            UiShutdownResponse::fmb(response).unwrap(),
+            (UiShutdownResponse {}, 1)
+        );
+        assert_eq!(input, "This is stdin.".to_string());
+        assert_eq!(
+            stdout_arc.lock().unwrap().get_string(),
+            "This is stdout.".to_string()
+        );
+        assert_eq!(
+            stderr_arc.lock().unwrap().get_string(),
+            "This is stderr.".to_string()
+        );
+        stop_handle.stop();
+    }
+
     #[tokio::test]
     async fn works_when_server_isnt_present() {
         running_test();
@@ -263,7 +316,10 @@ mod tests {
             .unwrap();
 
         let response = subject
-            .transact(UiSetupRequest { values: vec![] }.tmb(1), 1000)
+            .transact(
+            UiSetupRequest { values: vec![] }.tmb(1),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        )
             .await;
 
         assert_eq!(response, Err(PayloadError(101, "booga".to_string())));
@@ -290,7 +346,10 @@ mod tests {
             .await
             .unwrap();
 
-        let response = subject.transact(request.clone(), 1000).await;
+        let response = subject.transact(
+            request.clone(),
+            TRANSACT_TIMEOUT_MILLIS_FOR_TESTS,
+        ).await;
 
         match response {
             Err(ConnectionDropped(_)) => (),

@@ -1,21 +1,24 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::db_access_objects::banned_dao::BannedDaoFactory;
+use crate::accountant::db_access_objects::failed_payable_dao::FailedPayableDaoFactory;
 use crate::accountant::db_access_objects::payable_dao::PayableDaoFactory;
-use crate::accountant::db_access_objects::pending_payable_dao::PendingPayableDaoFactory;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableDaoFactory;
+use crate::accountant::db_access_objects::sent_payable_dao::SentPayableDaoFactory;
+use crate::accountant::scanners::payable_scanner::msgs::PricedTemplatesMessage;
 use crate::accountant::{
-    checked_conversion, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
-    ReportTransactionReceipts, ScanError, SentPayables,
+    checked_conversion, Accountant, ReceivedPayments, ScanError, SentPayables, TxReceiptsMessage,
 };
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
+use crate::actor_system_factory::SubsFactory;
+use crate::blockchain::blockchain_bridge::RegisterNewPendingPayables;
+use crate::db_config::config_dao::ConfigDaoFactory;
+use crate::sub_lib::neighborhood::ConfigChangeMsg;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -32,11 +35,6 @@ lazy_static! {
         permanent_debt_allowed_gwei: 500_000_000,
         threshold_interval_sec: 21600,
         unban_below_gwei: 500_000_000,
-    };
-    pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
-        pending_payable_scan_interval: Duration::from_secs(600),
-        payable_scan_interval: Duration::from_secs(600),
-        receivable_scan_interval: Duration::from_secs(600)
     };
 }
 
@@ -67,36 +65,44 @@ impl PaymentThresholds {
 
 pub struct DaoFactories {
     pub payable_dao_factory: Box<dyn PayableDaoFactory>,
-    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub sent_payable_dao_factory: Box<dyn SentPayableDaoFactory>,
+    pub failed_payable_dao_factory: Box<dyn FailedPayableDaoFactory>,
     pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
+    pub config_dao_factory: Box<dyn ConfigDaoFactory>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
-    pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
+    pub pending_payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
-impl Default for ScanIntervals {
-    fn default() -> Self {
-        *DEFAULT_SCAN_INTERVALS
+impl ScanIntervals {
+    pub fn compute_default(chain: Chain) -> Self {
+        Self {
+            payable_scan_interval: Duration::from_secs(600),
+            pending_payable_scan_interval: Duration::from_secs(
+                chain.rec().default_pending_payable_interval_sec,
+            ),
+            receivable_scan_interval: Duration::from_secs(600),
+        }
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,
+    pub config_change_msg_sub: Recipient<ConfigChangeMsg>,
     pub start: Recipient<StartMessage>,
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_consuming_wallet_balances_and_qualified_payables:
-        Recipient<ConsumingWalletBalancesAndQualifiedPayables>,
+    pub report_payable_payments_setup: Recipient<PricedTemplatesMessage>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
-    pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
+    pub register_new_pending_payables: Recipient<RegisterNewPendingPayables>,
+    pub report_transaction_status: Recipient<TxReceiptsMessage>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
@@ -108,13 +114,9 @@ impl Debug for AccountantSubs {
     }
 }
 
-pub trait AccountantSubsFactory {
-    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs;
-}
-
 pub struct AccountantSubsFactoryReal {}
 
-impl AccountantSubsFactory for AccountantSubsFactoryReal {
+impl SubsFactory<Accountant, AccountantSubs> for AccountantSubsFactoryReal {
     fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
         Accountant::make_subs_from(addr)
     }
@@ -180,7 +182,7 @@ pub enum SignConversionError {
 
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
-    declare_as_any!();
+    as_any_ref_in_trait!();
 }
 
 #[derive(Default)]
@@ -190,7 +192,15 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     fn id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum DetailedScanType {
+    NewPayables,
+    RetryPayables,
+    PendingPayables,
+    Receivables,
 }
 
 #[cfg(test)]
@@ -198,17 +208,30 @@ mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
-        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
-        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
+        AccountantSubsFactoryReal, DetailedScanType, MessageIdGenerator, MessageIdGeneratorReal,
+        PaymentThresholds, ScanIntervals, SubsFactory, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS,  MSG_ID_INCREMENTER,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::messages::ScanType;
     use std::str::FromStr;
     use std::sync::atomic::Ordering;
     use std::sync::Mutex;
     use std::time::Duration;
+
+    impl From<DetailedScanType> for ScanType {
+        fn from(scan_type: DetailedScanType) -> Self {
+            match scan_type {
+                DetailedScanType::NewPayables => ScanType::Payables,
+                DetailedScanType::RetryPayables => ScanType::Payables,
+                DetailedScanType::PendingPayables => ScanType::PendingPayables,
+                DetailedScanType::Receivables => ScanType::Receivables,
+            }
+        }
+    }
 
     static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
 
@@ -230,12 +253,6 @@ mod tests {
             threshold_interval_sec: 21600,
             unban_below_gwei: 500_000_000,
         };
-        let scan_intervals_expected = ScanIntervals {
-            pending_payable_scan_interval: Duration::from_secs(600),
-            payable_scan_interval: Duration::from_secs(600),
-            receivable_scan_interval: Duration::from_secs(600),
-        };
-        assert_eq!(*DEFAULT_SCAN_INTERVALS, scan_intervals_expected);
         assert_eq!(*DEFAULT_PAYMENT_THRESHOLDS, payment_thresholds_expected);
         assert_eq!(*DEFAULT_EARNING_WALLET, default_earning_wallet_expected);
     }
@@ -283,5 +300,35 @@ mod tests {
         let id = subject.id();
 
         assert_eq!(id, 0)
+    }
+
+    #[test]
+    fn default_for_scan_intervals_can_be_computed() {
+        let chain_a = Chain::BaseMainnet;
+        let chain_b = Chain::PolyMainnet;
+
+        let result_a = ScanIntervals::compute_default(chain_a);
+        let result_b = ScanIntervals::compute_default(chain_b);
+
+        assert_eq!(
+            result_a,
+            ScanIntervals {
+                payable_scan_interval: Duration::from_secs(600),
+                pending_payable_scan_interval: Duration::from_secs(
+                    chain_a.rec().default_pending_payable_interval_sec
+                ),
+                receivable_scan_interval: Duration::from_secs(600),
+            }
+        );
+        assert_eq!(
+            result_b,
+            ScanIntervals {
+                payable_scan_interval: Duration::from_secs(600),
+                pending_payable_scan_interval: Duration::from_secs(
+                    chain_b.rec().default_pending_payable_interval_sec
+                ),
+                receivable_scan_interval: Duration::from_secs(600),
+            }
+        );
     }
 }

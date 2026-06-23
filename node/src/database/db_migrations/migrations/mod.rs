@@ -8,3 +8,11 @@ pub mod migration_4_to_5;
 pub mod migration_5_to_6;
 pub mod migration_6_to_7;
 pub mod migration_7_to_8;
+pub mod migration_8_to_9;
+pub mod migration_9_to_10;
+#[rustfmt::skip]
+pub mod migration_10_to_11;
+#[rustfmt::skip]
+pub mod migration_11_to_12;
+#[rustfmt::skip]
+pub mod migration_12_to_13;

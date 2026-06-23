@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::Bootstrapper;
+use crate::bootstrapper::{Bootstrapper, CryptDEPair};
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -31,10 +31,10 @@ lazy_static! {
 }
 
 struct DispatcherOutSubs {
-    to_proxy_server: Recipient<InboundClientData>,
-    to_hopper: Recipient<InboundClientData>,
-    proxy_server_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    neighborhood_stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    to_proxy_server_sub: Recipient<InboundClientData>,
+    to_hopper_sub: Recipient<InboundClientData>,
+    proxy_server_sub: Recipient<StreamShutdownMsg>,
+    neighborhood_sub: Recipient<StreamShutdownMsg>,
     ui_gateway_sub: Recipient<NodeToUiMessage>,
 }
 
@@ -43,6 +43,7 @@ pub struct Dispatcher {
     crashable: bool,
     node_descriptor: NodeDescriptor,
     to_stream: Option<Recipient<TransmitDataMsg>>,
+    cryptde_pair: CryptDEPair,
     logger: Logger,
 }
 
@@ -70,10 +71,10 @@ impl Handler<BindMessage> for Dispatcher {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         let subs = DispatcherOutSubs {
-            to_proxy_server: msg.peer_actors.proxy_server.from_dispatcher,
-            to_hopper: msg.peer_actors.hopper.from_dispatcher,
-            proxy_server_stream_shutdown_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
-            neighborhood_stream_shutdown_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
+            to_proxy_server_sub: msg.peer_actors.proxy_server.from_dispatcher,
+            to_hopper_sub: msg.peer_actors.hopper.from_dispatcher,
+            proxy_server_sub: msg.peer_actors.proxy_server.stream_shutdown_sub,
+            neighborhood_sub: msg.peer_actors.neighborhood.stream_shutdown_sub,
             ui_gateway_sub: msg.peer_actors.ui_gateway.node_to_ui_message_sub,
         };
         self.subs = Some(subs);
@@ -96,14 +97,14 @@ impl Handler<InboundClientData> for Dispatcher {
             self.subs
                 .as_ref()
                 .expect("Hopper unbound in Dispatcher")
-                .to_hopper
+                .to_hopper_sub
                 .try_send(msg)
                 .expect("Hopper is dead");
         } else {
             self.subs
                 .as_ref()
                 .expect("ProxyServer unbound in Dispatcher")
-                .to_proxy_server
+                .to_proxy_server_sub
                 .try_send(msg)
                 .expect("ProxyServer is dead");
         }
@@ -161,19 +162,27 @@ impl Handler<NewPublicIp> for Dispatcher {
             Some(node_addr) => {
                 let ports = &node_addr.ports();
                 self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
-                Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
+                Bootstrapper::report_local_descriptor(
+                    self.cryptde_pair.main.as_ref(),
+                    &self.node_descriptor,
+                );
             }
         }
     }
 }
 
 impl Dispatcher {
-    pub fn new(node_descriptor: NodeDescriptor, crashable: bool) -> Dispatcher {
+    pub fn new(
+        node_descriptor: NodeDescriptor,
+        cryptde_pair: CryptDEPair,
+        crashable: bool,
+    ) -> Dispatcher {
         Dispatcher {
             subs: None,
             crashable,
             node_descriptor,
             to_stream: None,
+            cryptde_pair,
             logger: Logger::new("Dispatcher"),
         }
     }
@@ -193,11 +202,11 @@ impl Dispatcher {
         let subs = self.subs.as_ref().expect("Dispatcher is unbound");
         match msg.stream_type {
             RemovedStreamType::Clandestine => subs
-                .neighborhood_stream_shutdown_sub
+                .neighborhood_sub
                 .try_send(msg)
                 .expect("Neighborhood is dead"),
             RemovedStreamType::NonClandestine(_) => subs
-                .proxy_server_stream_shutdown_sub
+                .proxy_server_sub
                 .try_send(msg)
                 .expect("ProxyServer is dead"),
         }
@@ -206,7 +215,10 @@ impl Dispatcher {
     fn handle_descriptor_request(&mut self, client_id: u64, context_id: u64) {
         let node_desc_str_opt = match &self.node_descriptor.node_addr_opt {
             Some(node_addr) if node_addr.ip_addr() == *NULL_IP_ADDRESS => None,
-            Some(_) => Some(self.node_descriptor.to_string(main_cryptde())),
+            Some(_) => Some(
+                self.node_descriptor
+                    .to_string(self.cryptde_pair.main.as_ref()),
+            ),
             None => None,
         };
         let response_inner = UiDescriptorResponse {
@@ -227,13 +239,13 @@ impl Dispatcher {
 mod tests {
     use super::*;
     use crate::actor_system_factory::{ActorFactory, ActorFactoryReal};
-    use crate::bootstrapper::BootstrapperConfig;
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
+    use crate::node_test_utils::make_stream_handler_pool_subs_from_recorder;
     use crate::stream_messages::NonClandestineAttributes;
-    use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::test_utils::main_cryptde;
+    use crate::sub_lib::node_addr::NodeAddr;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
@@ -250,6 +262,15 @@ mod tests {
     use tokio::time::{sleep, Duration};
     use std::time::SystemTime;
 
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+        static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
+            CRYPTDE_PAIR.main.as_ref(),
+            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
+        ))
+        .unwrap();
+    }
+
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "DISPATCHER");
@@ -259,29 +280,21 @@ mod tests {
         );
     }
 
-    lazy_static! {
-        static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
-            main_cryptde(),
-            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
-        ))
-        .unwrap();
-    }
-
     #[actix::test]
     async fn sends_inbound_data_for_proxy_server_to_proxy_server() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
         let proxy_server = Recorder::new();
         let recording_arc = proxy_server.get_recording();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let reception_port = Some(8080);
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let reception_port_opt = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
-            reception_port,
-            sequence_number: Some(0),
+            client_addr,
+            reception_port_opt,
+            sequence_number_opt: Some(0),
             last_data: false,
             is_clandestine: false,
             data: data.clone(),
@@ -296,29 +309,29 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
 
         let message = recording.get_record::<InboundClientData>(0);
-        let actual_socket_addr = message.peer_addr.clone();
+        let actual_socket_addr = message.client_addr.clone();
         let actual_data = message.data.clone();
 
-        assert_eq!(actual_socket_addr, peer_addr);
+        assert_eq!(actual_socket_addr, client_addr);
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);
     }
 
     #[actix::test]
     async fn sends_inbound_data_for_hopper_to_hopper() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let (hopper, hopper_awaiter, hopper_recording_arc) = make_recorder();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let reception_port = Some(8080);
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let reception_port_opt = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
-            reception_port,
+            client_addr,
+            reception_port_opt,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().hopper(hopper).build();
@@ -333,29 +346,29 @@ mod tests {
         let hopper_recording = hopper_recording_arc.lock().unwrap();
 
         let message = hopper_recording.get_record::<InboundClientData>(0);
-        let actual_socket_addr = message.peer_addr.clone();
+        let actual_socket_addr = message.client_addr.clone();
         let actual_data = message.data.clone();
 
-        assert_eq!(actual_socket_addr, peer_addr);
+        assert_eq!(actual_socket_addr, client_addr);
         assert_eq!(actual_data, data);
         assert_eq!(hopper_recording.len(), 1);
     }
 
     #[actix::test]
     async fn inbound_client_data_handler_panics_when_proxy_server_is_unbound() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
-        let reception_port = Some(1234);
+        let client_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
+        let reception_port_opt = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
-            reception_port,
+            client_addr,
+            reception_port_opt,
             last_data: false,
             is_clandestine: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone(),
         };
 
@@ -367,19 +380,19 @@ mod tests {
 
     #[actix::test]
     async fn inbound_client_data_handler_panics_when_hopper_is_unbound() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_ibcd = subject_addr.clone().recipient::<InboundClientData>();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
-        let reception_port = Some(1234);
+        let client_addr = SocketAddr::from_str("1.2.3.4:8765").unwrap();
+        let reception_port_opt = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
-            reception_port,
+            client_addr,
+            reception_port_opt,
             last_data: false,
             is_clandestine: true,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
 
@@ -391,7 +404,7 @@ mod tests {
 
     #[actix::test]
     async fn panics_when_stream_handler_pool_is_unbound() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -399,7 +412,7 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: data.clone(),
         };
 
@@ -411,7 +424,7 @@ mod tests {
 
     #[actix::test]
     async fn forwards_outbound_data_to_stream_handler_pool() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let subject_addr = subject.start();
         let subject_obcd = subject_addr.clone().recipient::<TransmitDataMsg>();
         let stream_handler_pool = Recorder::new();
@@ -421,13 +434,13 @@ mod tests {
         let obcd = TransmitDataMsg {
             endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: data.clone(),
         };
         let mut peer_actors = peer_actors_builder().build();
         peer_actors.dispatcher = Dispatcher::make_subs_from(&subject_addr);
         let stream_handler_pool_subs =
-            make_stream_handler_pool_subs_from(Some(stream_handler_pool));
+            make_stream_handler_pool_subs_from_recorder(&stream_handler_pool.start());
         subject_addr
             .try_send(PoolBindMessage {
                 dispatcher_subs: peer_actors.dispatcher.clone(),
@@ -441,11 +454,9 @@ mod tests {
 
         task::yield_now().await;
         let recording = recording_arc.lock().unwrap();
-
         let message = recording.get_record::<TransmitDataMsg>(0);
         let actual_endpoint = message.endpoint.clone();
         let actual_data = message.data.clone();
-
         assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);
@@ -453,7 +464,7 @@ mod tests {
 
     #[actix::test]
     async fn handle_stream_shutdown_msg_routes_non_clandestine_to_proxy_server() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -485,7 +496,7 @@ mod tests {
 
     #[actix::test]
     async fn handle_stream_shutdown_msg_routes_clandestine_to_neighborhood() {
-        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
+        let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), CRYPTDE_PAIR.clone(), false);
         let addr = subject.start();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -528,7 +539,7 @@ mod tests {
             &IpAddr::from_str("0.0.0.0").unwrap(),
             &node_descriptor.node_addr_opt.as_ref().unwrap().ports(),
         ));
-        let subject = Dispatcher::new(node_descriptor.clone(), false);
+        let subject = Dispatcher::new(node_descriptor.clone(), CRYPTDE_PAIR.clone(), false);
         let addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -567,7 +578,9 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor_opt: Some(new_node_descriptor.to_string(main_cryptde())),
+                    node_descriptor_opt: Some(
+                        new_node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())
+                    ),
                 }
                 .tmb(4321)
             }
@@ -575,7 +588,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             format!(
                 "INFO: Bootstrapper: MASQ Node local descriptor: {}",
-                new_node_descriptor.to_string(main_cryptde())
+                new_node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())
             )
             .as_str(),
         );
@@ -587,7 +600,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@13.23.13.23:4545",
         ))
         .unwrap();
@@ -598,7 +611,7 @@ mod tests {
         };
         // Here dispatcher takes what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -615,7 +628,9 @@ mod tests {
             &NodeToUiMessage {
                 target: MessageTarget::ClientId(1234),
                 body: UiDescriptorResponse {
-                    node_descriptor_opt: Some(node_descriptor.to_string(main_cryptde())),
+                    node_descriptor_opt: Some(
+                        node_descriptor.to_string(CRYPTDE_PAIR.main.as_ref())
+                    ),
                 }
                 .tmb(4321)
             }
@@ -629,7 +644,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
         ))
         .unwrap();
@@ -640,7 +655,7 @@ mod tests {
         };
         // Here dispatcher doesn't get what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -671,7 +686,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let node_descriptor = NodeDescriptor::try_from((
-            main_cryptde(),
+            CRYPTDE_PAIR.main.as_ref(),
             "masq://eth-mainnet:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@0.0.0.0:4545",
         ))
         .unwrap();
@@ -682,7 +697,7 @@ mod tests {
         };
         // Here dispatcher doesn't get what it needs from the BootstrapperConfig
         let (dispatcher_subs, _) =
-            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind
@@ -719,10 +734,10 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut bootstrapper_config = BootstrapperConfig::new();
         let mut node_descriptor = NodeDescriptor::from((
-            main_cryptde().public_key(),
+            CRYPTDE_PAIR.main.public_key(),
             &NodeAddr::default(),
             Chain::default(),
-            main_cryptde() as &dyn CryptDE,
+            CRYPTDE_PAIR.main.as_ref(),
         ));
         node_descriptor.node_addr_opt = None;
         bootstrapper_config.node_descriptor = node_descriptor;
@@ -731,7 +746,7 @@ mod tests {
             body: UiDescriptorRequest {}.tmb(4321),
         };
         let (dispatcher_subs, _) =
-            ActorFactoryReal {}.make_and_start_dispatcher(&bootstrapper_config);
+            ActorFactoryReal::new(&CRYPTDE_PAIR).make_and_start_dispatcher(&bootstrapper_config);
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         dispatcher_subs
             .bind

@@ -105,6 +105,7 @@ impl Display for StreamWriterKey {
     }
 }
 
+// TODO: To avoid confusion with ProxyClient's StreamHandlerPool, rename this one or the other for easy identification.
 // It is used to store streams for both neighbors and browser.
 pub struct StreamHandlerPool {
     stream_writers: HashMap<StreamWriterKey, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
@@ -251,7 +252,7 @@ impl StreamHandlerPool {
             .expect("StreamHandlerPool is unbound")
             .remove_sub
             .clone();
-        let stream_shutdown_sub: Recipient<StreamShutdownMsg> = self
+        let dispatcher_shutdown_sub: Recipient<StreamShutdownMsg> = self
             .dispatcher_subs_opt
             .as_ref()
             .expect("Dispatcher is unbound")
@@ -262,7 +263,7 @@ impl StreamHandlerPool {
             origin_port,
             ibcd_sub,
             remove_sub,
-            stream_shutdown_sub,
+            dispatcher_shutdown_sub,
             port_configuration.discriminator_factories.clone(),
             port_configuration.is_clandestine,
             peer_addr,
@@ -301,7 +302,6 @@ impl StreamHandlerPool {
     }
 
     fn handle_transmit_data_msg(&mut self, msg: TransmitDataMsg) {
-        // TODO Can be recombined with DispatcherNodeQueryMessage after SC-358/GH-96
         debug!(
             self.logger,
             "Handling order to transmit {} bytes to {:?}",
@@ -316,6 +316,7 @@ impl StreamHandlerPool {
             .clone();
         match msg.endpoint.clone() {
             Endpoint::Key(key) => {
+                // It is used to query PublicKey inside Neighborhood
                 let request = DispatcherNodeQueryMessage {
                     query: NodeQueryMessage::PublicKey(key.clone()),
                     context: msg,
@@ -332,6 +333,7 @@ impl StreamHandlerPool {
                     .expect("Neighborhood is Dead")
             }
             Endpoint::Socket(socket_addr) => {
+                // The socket_addr can either be for the Neighbor or the browser
                 debug!(
                     self.logger,
                     "Translating TransmitDataMsg to node query response about {}", socket_addr
@@ -379,16 +381,45 @@ impl StreamHandlerPool {
             stream_writer_key
         );
         let report_to_counterpart = match self.stream_writers.remove(&stream_writer_key) {
-            None | Some(None) => false,
-            Some(Some(_sender_wrapper)) => true,
+            None => {
+                trace!(
+                    self.logger,
+                    "While handling RemoveStreamMsg: Stream Writers did not contain any entry for key {}",
+                    stream_writer_key
+                );
+                false
+            }
+            Some(None) => {
+                error!(
+                    self.logger,
+                    "An unpopulated entry in stream_writers was found for a {:?} stream ({:?}) from \
+                    a client. This shouldn't be possible. Investigate!",
+                    msg.stream_type, stream_writer_key
+                );
+                false
+            }
+            Some(Some(_sender_wrapper)) => {
+                trace!(
+                    self.logger,
+                    "While handling RemoveStreamMsg: Stream Writers contained an entry for key {}, also found stream writer; removing",
+                    stream_writer_key
+                );
+                true
+            }
         };
         let stream_shutdown_msg = StreamShutdownMsg {
             peer_addr: msg.peer_addr,
             stream_type: msg.stream_type,
             report_to_counterpart,
         };
-        debug!(self.logger, "Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart", stream_shutdown_msg.peer_addr, stream_shutdown_msg.stream_type, if stream_shutdown_msg.report_to_counterpart {""} else {"don't "});
-        msg.sub
+        debug!(
+            self.logger,
+            "Signaling StreamShutdownMsg to Dispatcher for stream from {} with stream type {:?}, {}report to counterpart",
+            stream_shutdown_msg.peer_addr,
+            stream_shutdown_msg.stream_type,
+            if stream_shutdown_msg.report_to_counterpart {""} else {"don't "}
+        );
+        msg.dispatcher_sub
             .try_send(stream_shutdown_msg)
             .expect("StreamShutdownMsg target is dead");
     }
@@ -491,7 +522,7 @@ impl StreamHandlerPool {
             sw_key
         );
         debug!(self.logger, "Masking {} bytes", msg.context.data.len());
-        let packet = if msg.context.sequence_number.is_none() {
+        let packet = if msg.context.sequence_number_opt.is_none() {
             let masquerader = self.traffic_analyzer.get_masquerader();
             match masquerader.mask(msg.context.data.as_slice()) {
                 Ok(masked_data) => SequencedPacket::new(masked_data, 0, false),
@@ -610,7 +641,7 @@ struct StreamStartFailureHandler {
     pub remove_neighbor_sub: Recipient<RemoveNeighborMessage>,
     pub logger: Logger,
     pub peer_addr: SocketAddr,
-    pub sub: Recipient<StreamShutdownMsg>,
+    pub dispatcher_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl StreamStartFailureHandler {
@@ -641,7 +672,7 @@ impl StreamStartFailureHandler {
                 .expect("Neighborhood Unbound"),
             logger: pool.logger.clone(),
             peer_addr,
-            sub: pool
+            dispatcher_sub: pool
                 .dispatcher_subs_opt
                 .as_ref()
                 .expect("Dispatcher is dead")
@@ -663,7 +694,7 @@ impl StreamStartFailureHandler {
                 peer_addr: self.peer_addr,
                 local_addr: SocketAddr::new(localhost(), 0), // irrelevant; stream was never opened
                 stream_type: RemovedStreamType::Clandestine,
-                sub: self.sub,
+                dispatcher_sub: self.dispatcher_sub,
             })
             .expect("StreamHandlerPool is dead");
         let remove_node_message = RemoveNeighborMessage {
@@ -762,6 +793,7 @@ impl TrafficAnalyzerReal {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bootstrapper::CryptDEPair;
     use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
@@ -773,7 +805,6 @@ mod tests {
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -788,6 +819,7 @@ mod tests {
     use actix::Actor;
     use actix::Addr;
     use tokio::time::{sleep, Duration as TokioDuration};
+    use lazy_static::lazy_static;
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -800,6 +832,10 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -852,7 +888,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("1.2.3.4:80").unwrap();
         let peer_addr_a = peer_addr.clone();
         let local_addr = SocketAddr::from_str("1.2.3.5:80").unwrap();
-        let reception_port = Some(8081);
+        let reception_port_opt = Some(8081);
         let is_clandestine = false;
         let one_http_req = b"GET http://here.com HTTP/1.1\r\n\r\n".to_vec();
         let one_http_req_a = one_http_req.clone();
@@ -901,7 +937,7 @@ mod tests {
             .add_sub
             .send(AddStreamMsg::new(
                 connection_info,
-                reception_port,
+                reception_port_opt,
                 PortConfiguration::new(
                     vec![Box::new(HttpRequestDiscriminatorFactory::new())],
                     is_clandestine,
@@ -919,11 +955,11 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
-                reception_port,
+                client_addr: peer_addr_a,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: one_http_req_a,
             }
         );
@@ -933,11 +969,11 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
-                reception_port,
+                client_addr: peer_addr_a,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(1),
+                sequence_number_opt: Some(1),
                 data: another_http_req_a,
             }
         );
@@ -947,11 +983,11 @@ mod tests {
             dispatcher_record,
             &dispatcher::InboundClientData {
                 timestamp: dispatcher_record.timestamp,
-                peer_addr: peer_addr_a,
-                reception_port,
+                client_addr: peer_addr_a,
+                reception_port_opt,
                 last_data: false,
                 is_clandestine,
-                sequence_number: Some(2),
+                sequence_number_opt: Some(2),
                 data: a_third_http_req_a,
             }
         );
@@ -961,7 +997,7 @@ mod tests {
             &dispatcher::StreamShutdownMsg {
                 peer_addr: peer_addr_a,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                    reception_port: reception_port.unwrap(),
+                    reception_port: reception_port_opt.unwrap(),
                     sequence_number: 3
                 }),
                 report_to_counterpart: true,
@@ -1022,7 +1058,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             })
             .unwrap();
@@ -1094,7 +1130,7 @@ mod tests {
             .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: vec![0x12, 0x34],
             })
             .await
@@ -1118,7 +1154,7 @@ mod tests {
             .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: vec![0x56, 0x78],
             })
             .await
@@ -1189,7 +1225,7 @@ mod tests {
                 peer_addr,
                 local_addr,
                 stream_type: RemovedStreamType::Clandestine,
-                sub: peer_actors.dispatcher.stream_shutdown_sub,
+                dispatcher_sub: peer_actors.dispatcher.stream_shutdown_sub,
             })
             .await
             .unwrap();
@@ -1199,7 +1235,7 @@ mod tests {
             .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: vec![0x12, 0x34],
             })
             .await
@@ -1230,7 +1266,7 @@ mod tests {
             peer_addr,
             local_addr,
             stream_type: RemovedStreamType::Clandestine,
-            sub,
+            dispatcher_sub: sub,
         });
 
         // Give the actor time to process the message
@@ -1264,7 +1300,7 @@ mod tests {
                 reception_port: HTTP_PORT,
                 sequence_number: 1234,
             }),
-            sub,
+            dispatcher_sub: sub,
         });
 
         // Give the actor time to process the message
@@ -1287,10 +1323,13 @@ mod tests {
 
     #[actix_rt::test]
     async fn handle_remove_stream_msg_handles_stream_waiting_for_connect_scenario() {
+        init_test_logging();
+        let test_name = "handle_remove_stream_msg_handles_stream_waiting_for_connect_scenario";
         let (recorder, _, recording_arc) = make_recorder();
         // running under actix runtime provided by the attribute
         let sub = recorder.start().recipient::<StreamShutdownMsg>();
         let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.logger = Logger::new(test_name);
         let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1300,7 +1339,7 @@ mod tests {
             peer_addr,
             local_addr,
             stream_type: RemovedStreamType::Clandestine,
-            sub,
+            dispatcher_sub: sub,
         });
 
         // let actors process messages; actor internals are scheduled on the actix runtime
@@ -1317,6 +1356,11 @@ mod tests {
                 report_to_counterpart: false
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {}: An unpopulated entry in stream_writers was found for a \
+            Clandestine stream ({:?}) from a client. This shouldn't be possible. Investigate!",
+            test_name, sw_key
+        ));
     }
 
     #[actix::test]
@@ -1358,7 +1402,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(public_key),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: b"hello".to_vec(),
                 },
             })
@@ -1433,7 +1477,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Key(public_key.clone()),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: outgoing_unmasked,
             })
             .unwrap();
@@ -1467,11 +1511,11 @@ mod tests {
             ibcd,
             &InboundClientData {
                 timestamp: ibcd.timestamp,
-                peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
-                reception_port: Some(54321),
+                client_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
+                reception_port_opt: Some(54321),
                 last_data: false,
                 is_clandestine: true,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: incoming_unmasked,
             }
         );
@@ -1538,7 +1582,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Key(key.clone()),
                 last_data: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             })
             .unwrap();
@@ -1568,7 +1612,7 @@ mod tests {
     #[actix::test]
     async fn node_query_response_handler_does_not_try_to_write_when_neighbor_is_not_found() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         let subject = StreamHandlerPool::new(vec![], false);
@@ -1592,7 +1636,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(key.clone()),
                     last_data: false,
-                    sequence_number: Some(0),
+                    sequence_number_opt: Some(0),
                     data: b"hello".to_vec(),
                 },
             })
@@ -1613,7 +1657,7 @@ mod tests {
     #[actix::test]
     async fn node_query_response_handler_does_not_try_to_write_when_neighbor_ip_is_not_known() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         let subject = StreamHandlerPool::new(vec![], false);
@@ -1637,7 +1681,7 @@ mod tests {
                 context: TransmitDataMsg {
                     endpoint: Endpoint::Key(key.clone()),
                     last_data: false,
-                    sequence_number: None,
+                    sequence_number_opt: None,
                     data: b"hello".to_vec(),
                 },
             })
@@ -1658,7 +1702,7 @@ mod tests {
     #[actix::test]
     async fn node_query_response_handler_resends_transmit_data_msg_when_connection_is_in_progress() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1666,7 +1710,7 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: Some(0),
+            sequence_number_opt: Some(0),
             data: b"hello".to_vec(),
         };
         let msg_a = msg.clone();
@@ -1746,7 +1790,7 @@ mod tests {
     #[test]
     fn log_an_error_when_it_fails_to_send_a_packet() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let peer_addr = SocketAddr::new(localhost(), find_free_port());
         let sw_key = StreamWriterKey::from(peer_addr);
@@ -1768,7 +1812,7 @@ mod tests {
             context: TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr.clone()),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             },
         };
@@ -1789,7 +1833,7 @@ mod tests {
     async fn when_a_new_connection_fails_the_stream_writer_flag_is_removed_and_another_connection_is_attempted_for_the_next_message_with_the_same_stream_key(
     ) {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let key_bg = key.clone();
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
@@ -1797,13 +1841,13 @@ mod tests {
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"hello".to_vec(),
         };
         let msg_a = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"worlds".to_vec(),
         };
         let expected_data = JsonMasquerader::new().mask(&msg_a.data).unwrap();
@@ -1891,7 +1935,7 @@ mod tests {
     fn node_query_response_handler_sets_counterpart_flag_and_removes_stream_writer_if_last_data_is_true(
     ) {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key().clone();
         let peer_addr = SocketAddr::from_str("127.0.0.1:8005").unwrap();
         let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1913,7 +1957,7 @@ mod tests {
             context: TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr.clone()),
                 last_data: true,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: b"hello".to_vec(),
             },
         });
@@ -1944,14 +1988,14 @@ mod tests {
     #[should_panic(expected = "Mailbox has closed")]
     async fn when_node_query_response_node_addr_contains_no_ports_then_stream_handler_pool_panics() {
         init_test_logging();
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let key = cryptde.public_key();
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let msg = TransmitDataMsg {
             endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: b"hello".to_vec(),
         };
 
@@ -2038,7 +2082,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: hello,
             })
             .unwrap();
@@ -2048,7 +2092,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: worlds,
             })
             .unwrap();
@@ -2108,7 +2152,7 @@ mod tests {
             .try_send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(peer_addr),
                 last_data: false,
-                sequence_number: None,
+                sequence_number_opt: None,
                 data: b"hello".to_vec(),
             })
             .unwrap();
@@ -2145,7 +2189,7 @@ mod tests {
             .send(TransmitDataMsg {
                 endpoint: Endpoint::Socket(local_addr),
                 last_data: false,
-                sequence_number: Some(0),
+                sequence_number_opt: Some(0),
                 data: outgoing_unmasked,
             })
             .await

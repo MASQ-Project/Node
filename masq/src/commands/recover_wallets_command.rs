@@ -10,10 +10,10 @@ use async_trait::async_trait;
 use clap::builder::{PossibleValuesParser, ValueRange};
 use clap::{Arg, ArgGroup, Command as ClapCommand};
 use itertools::Either;
-use masq_lib::implement_as_any;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::short_writeln;
+use masq_lib::utils::to_string;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
@@ -39,7 +39,7 @@ impl RecoverWalletsCommand {
 
         let mnemonic_phrase_opt = matches.get_one::<String>("mnemonic-phrase").map(|mpv| {
             mpv.split(' ')
-                .map(|x| x.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>()
         });
         let language = matches
@@ -48,7 +48,7 @@ impl RecoverWalletsCommand {
             .to_string();
         let passphrase_opt = matches
             .get_one::<String>("passphrase")
-            .map(|mp| mp.to_string());
+            .map(to_string);
         let seed_spec_opt = mnemonic_phrase_opt.map(|mnemonic_phrase| SeedSpec {
             mnemonic_phrase,
             language,
@@ -134,7 +134,7 @@ impl Command for RecoverWalletsCommand {
         Ok(())
     }
 
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 const RECOVER_WALLETS_ABOUT: &str =
@@ -356,7 +356,7 @@ mod tests {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some (SeedSpec {
                     mnemonic_phrase: "river message view churn potato cabbage craft luggage tape month observe obvious"
-                        .split(" ").into_iter().map(|x| x.to_string()).collect(),
+                        .split(" ").into_iter().map(to_string).collect(),
                     passphrase_opt: Some("booga".to_string()),
                     language: "English".to_string(),
                 }),

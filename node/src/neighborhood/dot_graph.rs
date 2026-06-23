@@ -12,12 +12,13 @@ pub struct NodeRenderableInner {
     pub version: u32,
     pub accepts_connections: bool,
     pub routes_data: bool,
+    pub country_code: String,
 }
 
 pub struct NodeRenderable {
     pub inner: Option<NodeRenderableInner>,
     pub public_key: PublicKey,
-    pub node_addr: Option<NodeAddr>,
+    pub node_addr_opt: Option<NodeAddr>,
     pub known_source: bool,
     pub known_target: bool,
     pub is_present: bool,
@@ -45,10 +46,11 @@ impl NodeRenderable {
     fn render_label(&self) -> String {
         let inner_string = match &self.inner {
             Some(inner) => format!(
-                "{}{} v{}\\n",
+                "{}{} v{} {}\\n",
                 if inner.accepts_connections { "A" } else { "a" },
                 if inner.routes_data { "R" } else { "r" },
                 inner.version,
+                inner.country_code
             ),
             None => String::new(),
         };
@@ -58,7 +60,7 @@ impl NodeRenderable {
         } else {
             &public_key_str
         };
-        let node_addr_string = match self.node_addr {
+        let node_addr_string = match self.node_addr_opt {
             None => String::new(),
             Some(ref na) => format!("\\n{}", na),
         };
@@ -107,9 +109,10 @@ mod tests {
                 version: 1,
                 accepts_connections: true,
                 routes_data: true,
+                country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
-            node_addr: None,
+            node_addr_opt: None,
             known_source: false,
             known_target: false,
             is_present: true,
@@ -120,7 +123,7 @@ mod tests {
         assert_string_contains(
             &result,
             &format!(
-                "\"{}\" [label=\"AR v1\\n{}\"];",
+                "\"{}\" [label=\"AR v1 ZZ\\n{}\"];",
                 public_key_64, public_key_trunc
             ),
         );
@@ -135,9 +138,10 @@ mod tests {
                 version: 1,
                 accepts_connections: false,
                 routes_data: false,
+                country_code: "ZZ".to_string(),
             }),
             public_key: public_key.clone(),
-            node_addr: None,
+            node_addr_opt: None,
             known_source: false,
             known_target: false,
             is_present: true,
@@ -148,7 +152,7 @@ mod tests {
         assert_string_contains(
             &result,
             &format!(
-                "\"{}\" [label=\"ar v1\\n{}\"];",
+                "\"{}\" [label=\"ar v1 ZZ\\n{}\"];",
                 public_key_64, public_key_64
             ),
         );

@@ -1,8 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
+use crate::database::db_migrations::migrations::migration_10_to_11::Migrate_10_to_11;
+use crate::database::db_migrations::migrations::migration_11_to_12::Migrate_11_to_12;
+use crate::database::db_migrations::migrations::migration_12_to_13::Migrate_12_to_13;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
 use crate::database::db_migrations::migrations::migration_2_to_3::Migrate_2_to_3;
 use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4;
@@ -10,11 +12,13 @@ use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
 use crate::database::db_migrations::migrations::migration_7_to_8::Migrate_7_to_8;
+use crate::database::db_migrations::migrations::migration_8_to_9::Migrate_8_to_9;
+use crate::database::db_migrations::migrations::migration_9_to_10::Migrate_9_to_10;
 use crate::database::db_migrations::migrator_utils::{
     DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
+use crate::database::rusqlite_wrappers::{ConnectionWrapper, TransactionSafeWrapper};
 use masq_lib::logger::Logger;
-use rusqlite::Transaction;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -77,6 +81,11 @@ impl DbMigratorReal {
             &Migrate_5_to_6,
             &Migrate_6_to_7,
             &Migrate_7_to_8,
+            &Migrate_8_to_9,
+            &Migrate_9_to_10,
+            &Migrate_10_to_11,
+            &Migrate_11_to_12,
+            &Migrate_12_to_13,
         ]
     }
 
@@ -108,7 +117,7 @@ impl DbMigratorReal {
         &self,
         record: &dyn DatabaseMigration,
         migration_utilities: &'a (dyn DBMigrationUtilities + 'a),
-        logger: &'a Logger,
+        logger: &Logger,
     ) -> rusqlite::Result<()> {
         info!(
             &self.logger,
@@ -123,16 +132,16 @@ impl DbMigratorReal {
 
     pub fn update_schema_version(
         name_of_given_table: &str,
-        transaction: &Transaction,
+        transaction: &TransactionSafeWrapper,
         update_to: usize,
     ) -> rusqlite::Result<()> {
-        transaction.execute(
-            &format!(
+        transaction
+            .prepare(&format!(
                 "UPDATE {} SET value = {} WHERE name = 'schema_version'",
                 name_of_given_table, update_to
-            ),
-            [],
-        )?;
+            ))
+            .expect("internal rusqlite error")
+            .execute([])?;
         Ok(())
     }
 
@@ -182,8 +191,6 @@ impl DbMigratorReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::ExternalData;
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
@@ -194,6 +201,8 @@ mod tests {
         DBMigratorInnerConfiguration,
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
+    use crate::database::rusqlite_wrappers::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::test_utils::ConnectionWrapperMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::constants::CURRENT_SCHEMA_VERSION;
     use masq_lib::logger::Logger;
@@ -575,11 +584,9 @@ mod tests {
         let assertion: (String, String) = connection_wrapper
             .transaction()
             .unwrap()
-            .query_row(
-                "SELECT name, value FROM test WHERE name='schema_version'",
-                [],
-                |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())),
-            )
+            .prepare("SELECT name, value FROM test WHERE name='schema_version'")
+            .unwrap()
+            .query_row([], |row| Ok((row.get(0).unwrap(), row.get(1).unwrap())))
             .unwrap();
         assert_eq!(assertion.1, "5")
     }

@@ -7,13 +7,13 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::NeighborhoodMode;
 use node_lib::accountant::db_access_objects::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::db_access_objects::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
+use node_lib::database::rusqlite_wrappers::ConnectionWrapper;
 use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
+use node_lib::neighborhood::gossip::AccessibleGossipRecord;
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
-use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptData, PlainData};
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
@@ -21,10 +21,6 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{io, thread};
-
-pub trait UrlHolder {
-    fn url(&self) -> String;
-}
 
 pub fn send_chunk(stream: &mut TcpStream, chunk: &[u8]) {
     stream
@@ -138,6 +134,7 @@ impl From<&dyn MASQNode> for AccessibleGossipRecord {
                 accepts_connections: masq_node.accepts_connections(),
                 routes_data: masq_node.routes_data(),
                 version: 0,
+                country_code_opt: masq_node.country_code_opt(),
             },
             node_addr_opt: Some(masq_node.node_addr()),
             signed_gossip: PlainData::new(b""),

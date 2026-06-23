@@ -50,8 +50,14 @@ impl LiveHop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{main_cryptde, make_paying_wallet};
+    use crate::bootstrapper::CryptDEPair;
+    use crate::test_utils::make_paying_wallet;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn can_construct_hop() {
@@ -70,7 +76,7 @@ mod tests {
 
     #[test]
     fn decode_can_handle_errors() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let encrypted = CryptData::new(&[0]);
 
         let result = LiveHop::decode(cryptde, &encrypted);
@@ -85,7 +91,7 @@ mod tests {
 
     #[test]
     fn encode_decode() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let encode_key = cryptde.public_key();
         let contract_address = &TEST_DEFAULT_CHAIN.rec().contract.clone();

@@ -2,8 +2,9 @@
 
 use crate::blockchains::blockchain_records::{BlockchainRecord, CHAINS};
 use crate::constants::{
-    DEFAULT_CHAIN, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_CHAIN,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    POLYGON_AMOY_FULL_IDENTIFIER, POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use core::str::FromStr;
 use serde_derive::{Deserialize, Serialize};
@@ -14,14 +15,9 @@ pub enum Chain {
     EthMainnet,
     EthRopsten,
     PolyMainnet,
-    PolyMumbai,
-    Dev,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
-pub enum ChainFamily {
-    Eth,
-    Polygon,
+    PolyAmoy,
+    BaseMainnet,
+    BaseSepolia,
     Dev,
 }
 
@@ -39,8 +35,12 @@ impl FromStr for Chain {
             Ok(Chain::PolyMainnet)
         } else if str == ETH_MAINNET_FULL_IDENTIFIER {
             Ok(Chain::EthMainnet)
-        } else if str == POLYGON_MUMBAI_FULL_IDENTIFIER {
-            Ok(Chain::PolyMumbai)
+        } else if str == BASE_MAINNET_FULL_IDENTIFIER {
+            Ok(Chain::BaseMainnet)
+        } else if str == BASE_SEPOLIA_FULL_IDENTIFIER {
+            Ok(Chain::BaseSepolia)
+        } else if str == POLYGON_AMOY_FULL_IDENTIFIER {
+            Ok(Chain::PolyAmoy)
         } else if str == ETH_ROPSTEN_FULL_IDENTIFIER {
             Ok(Chain::EthRopsten)
         } else if str == DEV_CHAIN_FULL_IDENTIFIER {
@@ -54,13 +54,30 @@ impl FromStr for Chain {
 impl Display for Chain {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let identifier = match self {
-            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
             Chain::EthMainnet => ETH_MAINNET_FULL_IDENTIFIER,
-            Chain::PolyMumbai => POLYGON_MUMBAI_FULL_IDENTIFIER,
             Chain::EthRopsten => ETH_ROPSTEN_FULL_IDENTIFIER,
+            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
+            Chain::PolyAmoy => POLYGON_AMOY_FULL_IDENTIFIER,
+            Chain::BaseMainnet => BASE_MAINNET_FULL_IDENTIFIER,
+            Chain::BaseSepolia => BASE_SEPOLIA_FULL_IDENTIFIER,
             Chain::Dev => DEV_CHAIN_FULL_IDENTIFIER,
         };
         write!(f, "{}", identifier)
+    }
+}
+
+impl Display for Chain {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let chain_name = match self {
+            Chain::EthMainnet => ETH_MAINNET_FULL_IDENTIFIER,
+            Chain::EthRopsten => ETH_ROPSTEN_FULL_IDENTIFIER,
+            Chain::PolyMainnet => POLYGON_MAINNET_FULL_IDENTIFIER,
+            Chain::PolyAmoy => POLYGON_AMOY_FULL_IDENTIFIER,
+            Chain::BaseMainnet => BASE_MAINNET_FULL_IDENTIFIER,
+            Chain::BaseSepolia => BASE_SEPOLIA_FULL_IDENTIFIER,
+            Chain::Dev => DEV_CHAIN_FULL_IDENTIFIER,
+        };
+        write!(f, "{}", chain_name)
     }
 }
 
@@ -80,7 +97,7 @@ impl Chain {
     }
 
     fn mainnets() -> &'static [Chain] {
-        &[Chain::PolyMainnet, Chain::EthMainnet]
+        &[Chain::PolyMainnet, Chain::BaseMainnet, Chain::EthMainnet]
     }
 }
 
@@ -166,9 +183,10 @@ mod tests {
             num_chain_id: 0,
             self_id: Chain::PolyMainnet,
             literal_identifier: "",
+            gas_price_safe_ceiling_minor: 0,
+            default_pending_payable_interval_sec: 0,
             contract: Default::default(),
             contract_creation_block: 0,
-            chain_family: ChainFamily::Polygon,
         }
     }
 
@@ -182,6 +200,37 @@ mod tests {
                 assert_eq!(chain.is_mainnet(), true)
             }
         })
+    }
+
+    #[test]
+    fn display_is_properly_implemented() {
+        let chains = [
+            Chain::EthMainnet,
+            Chain::EthRopsten,
+            Chain::PolyMainnet,
+            Chain::PolyAmoy,
+            Chain::BaseMainnet,
+            Chain::BaseSepolia,
+            Chain::Dev,
+        ];
+
+        let strings = chains
+            .iter()
+            .map(|chain| chain.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            strings,
+            vec![
+                ETH_MAINNET_FULL_IDENTIFIER.to_string(),
+                ETH_ROPSTEN_FULL_IDENTIFIER.to_string(),
+                POLYGON_MAINNET_FULL_IDENTIFIER.to_string(),
+                POLYGON_AMOY_FULL_IDENTIFIER.to_string(),
+                BASE_MAINNET_FULL_IDENTIFIER.to_string(),
+                BASE_SEPOLIA_FULL_IDENTIFIER.to_string(),
+                DEV_CHAIN_FULL_IDENTIFIER.to_string(),
+            ]
+        );
     }
 
     fn assert_mainnet_exist() {

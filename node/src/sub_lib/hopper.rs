@@ -76,6 +76,28 @@ pub enum MessageType {
     DnsResolveFailed(VersionedData<DnsResolveFailure_0v1>),
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MessageTypeLite {
+    ClientRequest,
+    ClientResponse,
+    Gossip,
+    GossipFailure,
+    DnsResolveFailed,
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<MessageTypeLite> for MessageType {
+    fn into(self) -> MessageTypeLite {
+        match self {
+            MessageType::ClientRequest(_) => MessageTypeLite::ClientRequest,
+            MessageType::ClientResponse(_) => MessageTypeLite::ClientResponse,
+            MessageType::Gossip(_) => MessageTypeLite::Gossip,
+            MessageType::GossipFailure(_) => MessageTypeLite::GossipFailure,
+            MessageType::DnsResolveFailed(_) => MessageTypeLite::DnsResolveFailed,
+        }
+    }
+}
+
 impl IncipientCoresPackage {
     pub fn new(
         cryptde: &dyn CryptDE, // must be the CryptDE of the Node to which the top hop is encrypted
@@ -126,7 +148,7 @@ impl<T> ExpiredCoresPackage<T> {
 
 #[derive(Clone)]
 pub struct HopperConfig {
-    pub cryptdes: CryptDEPair,
+    pub cryptde_pair: CryptDEPair,
     pub per_routing_service: u64,
     pub per_routing_byte: u64,
     pub is_decentralized: bool,
@@ -154,12 +176,18 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::dispatcher::Component;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::{main_cryptde, make_meaningless_message_type, make_paying_wallet};
+    use crate::test_utils::{make_meaningless_message_type, make_paying_wallet};
     use actix::Actor;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::IpAddr;
     use std::str::FromStr;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[actix::test]
     async fn hopper_subs_debug() {
@@ -178,10 +206,10 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let public_key = PublicKey::new(&[1, 2]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1, 2, 3, 4]);
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let result =
             NoLookupIncipientCoresPackage::new(cryptde, &public_key, &node_addr, payload.clone());
@@ -202,12 +230,12 @@ mod tests {
 
     #[test]
     fn no_lookup_incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let result = NoLookupIncipientCoresPackage::new(
             cryptde,
             &PublicKey::new(&[]),
             &NodeAddr::new(&IpAddr::from_str("1.1.1.1").unwrap(), &[]),
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
         );
         assert_eq!(
             result,
@@ -219,7 +247,7 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_is_created_correctly() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let key12 = cryptde.public_key();
         let key34 = PublicKey::new(&[3, 4]);
@@ -231,7 +259,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let result = IncipientCoresPackage::new(cryptde, route.clone(), payload.clone(), &key56);
         let subject = result.unwrap();
@@ -250,11 +278,11 @@ mod tests {
 
     #[test]
     fn incipient_cores_package_new_complains_about_problems_encrypting_payload() {
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let result = IncipientCoresPackage::new(
             cryptde,
             Route { hops: vec![] },
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
             &PublicKey::new(&[]),
         );
 
@@ -271,7 +299,7 @@ mod tests {
         let immediate_neighbor = SocketAddr::from_str("1.2.3.4:1234").unwrap();
         let a_key = PublicKey::new(&[65, 65, 65]);
         let b_key = PublicKey::new(&[66, 66, 66]);
-        let cryptde = main_cryptde();
+        let cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let route = Route::one_way(
             RouteSegment::new(vec![&a_key, &b_key], Component::Neighborhood),
@@ -280,7 +308,7 @@ mod tests {
             Some(TEST_DEFAULT_CHAIN.rec().contract),
         )
         .unwrap();
-        let payload = make_meaningless_message_type();
+        let payload = make_meaningless_message_type(StreamKey::make_meaningless_stream_key());
 
         let subject: ExpiredCoresPackage<MessageType> = ExpiredCoresPackage::new(
             immediate_neighbor,
@@ -295,5 +323,28 @@ mod tests {
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);
         assert_eq!(subject.payload_len, 42);
+    }
+
+    #[test]
+    fn message_type_can_be_converted_in_to_message_type_lite() {
+        let dns_resolve_failed =
+            MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_response =
+            MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_request = MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip_failure = MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip = MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![]));
+
+        let dns_resolve_failed_result: MessageTypeLite = dns_resolve_failed.into();
+        let client_response_result: MessageTypeLite = client_response.into();
+        let client_request_result: MessageTypeLite = client_request.into();
+        let gossip_failure_result: MessageTypeLite = gossip_failure.into();
+        let gossip_result: MessageTypeLite = gossip.into();
+
+        assert_eq!(dns_resolve_failed_result, MessageTypeLite::DnsResolveFailed);
+        assert_eq!(client_response_result, MessageTypeLite::ClientResponse);
+        assert_eq!(client_request_result, MessageTypeLite::ClientRequest);
+        assert_eq!(gossip_failure_result, MessageTypeLite::GossipFailure);
+        assert_eq!(gossip_result, MessageTypeLite::Gossip);
     }
 }

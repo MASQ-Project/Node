@@ -73,7 +73,7 @@ impl ConnectionProgress {
         let new_stage = usize::try_from(&connection_stage);
 
         if let (Ok(current_stage_num), Ok(new_stage_num)) = (current_stage, new_stage) {
-            if new_stage_num != current_stage_num + 1 {
+            if (new_stage_num != current_stage_num) && (new_stage_num != current_stage_num + 1) {
                 panic!(
                     "Can't update the stage from {:?} to {:?}",
                     self.connection_stage, connection_stage
@@ -93,21 +93,28 @@ impl ConnectionProgress {
     }
 
     pub fn handle_pass_gossip(&mut self, logger: &Logger, new_pass_target: IpAddr) {
-        if self.connection_stage != ConnectionStage::TcpConnectionEstablished {
-            panic!(
-                "Can't update the stage from {:?} to {:?}",
-                self.connection_stage,
-                ConnectionStage::StageZero
-            )
-        };
-
-        debug!(
-            logger,
-            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}. \
-            Hence, updating the connection stage of the new Node to StageZero.",
-            self.current_peer_addr,
-            new_pass_target
+        let preliminary_msg = format!(
+            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}",
+            self.current_peer_addr, new_pass_target,
         );
+        match self.connection_stage {
+            ConnectionStage::StageZero => {
+                error!(
+                    logger,
+                    "{preliminary_msg}. Requested to update the stage from StageZero to StageZero.",
+                )
+            }
+            ConnectionStage::TcpConnectionEstablished => {
+                debug!(
+                    logger,
+                    "{preliminary_msg}. Updating the stage from TcpConnectionEstablished to StageZero.",
+                )
+            }
+            _ => panic!(
+                "{preliminary_msg}. Can't update the stage from {:?} to StageZero",
+                self.connection_stage,
+            ),
+        }
 
         self.connection_stage = ConnectionStage::StageZero;
         self.current_peer_addr = new_pass_target;
@@ -266,9 +273,8 @@ impl OverallConnectionStatus {
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
         logger: &Logger,
     ) {
-        // TODO: Modify this fn when you're implementing the regressing transitions
         let prev_stage = self.stage;
-        if new_stage as usize > prev_stage as usize {
+        if new_stage != prev_stage {
             self.stage = new_stage;
             OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
             debug!(
@@ -336,6 +342,82 @@ mod tests {
     use masq_lib::ui_gateway::MessageTarget;
 
     #[test]
+    fn update_stage_tolerates_advancement() {
+        let cases = vec![
+            (
+                ConnectionStage::StageZero,
+                ConnectionStage::TcpConnectionEstablished,
+            ),
+            (
+                ConnectionStage::TcpConnectionEstablished,
+                ConnectionStage::NeighborshipEstablished,
+            ),
+            (
+                ConnectionStage::StageZero,
+                ConnectionStage::Failed(TcpConnectionFailed),
+            ),
+            (
+                ConnectionStage::TcpConnectionEstablished,
+                ConnectionStage::Failed(PassLoopFound),
+            ),
+            (
+                ConnectionStage::NeighborshipEstablished,
+                ConnectionStage::Failed(NoGossipResponseReceived),
+            ),
+        ];
+        cases.into_iter().for_each(|(from_stage, to_stage)| {
+            let mut subject = ConnectionProgress {
+                initial_node_descriptor: make_node_descriptor(make_ip(1)),
+                current_peer_addr: make_ip(1),
+                connection_stage: from_stage,
+            };
+
+            subject.update_stage(
+                &Logger::new("update_stage_tolerates_advancement"),
+                to_stage.clone(),
+            );
+
+            assert_eq!(subject.connection_stage, to_stage);
+        })
+    }
+
+    #[test]
+    #[should_panic(expected = "Can't update the stage from StageZero to NeighborshipEstablished")]
+    fn update_stage_does_not_tolerate_skipping() {
+        let mut subject = ConnectionProgress {
+            initial_node_descriptor: make_node_descriptor(make_ip(1)),
+            current_peer_addr: make_ip(1),
+            connection_stage: ConnectionStage::StageZero,
+        };
+
+        subject.update_stage(
+            &Logger::new("update_stage_does_not_tolerate_skipping"),
+            ConnectionStage::NeighborshipEstablished,
+        );
+    }
+
+    #[test]
+    fn update_stage_tolerates_stasis() {
+        let cases = vec![
+            ConnectionStage::StageZero,
+            ConnectionStage::TcpConnectionEstablished,
+            ConnectionStage::NeighborshipEstablished,
+            ConnectionStage::Failed(TcpConnectionFailed),
+        ];
+        cases.into_iter().for_each(|stage| {
+            let mut subject = ConnectionProgress {
+                initial_node_descriptor: make_node_descriptor(make_ip(1)),
+                current_peer_addr: make_ip(1),
+                connection_stage: stage.clone(),
+            };
+
+            subject.update_stage(&Logger::new("update_stage_tolerates_stasis"), stage.clone());
+
+            assert_eq!(subject.connection_stage, stage);
+        })
+    }
+
+    #[test]
     #[should_panic(
         expected = "Unable to receive node addr for the descriptor NodeDescriptor { blockchain: EthRopsten, encryption_public_key: 0x000000, node_addr_opt: None }"
     )]
@@ -351,13 +433,13 @@ mod tests {
     #[test]
     fn connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order() {
         init_test_logging();
+        let test_name =
+            "connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order";
         let ip_addr = make_ip(1);
         let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
         let pass_target = make_ip(2);
-        let logger = Logger::new(
-            "connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order",
-        );
+        let logger = Logger::new(test_name);
         subject.update_stage(&logger, ConnectionStage::TcpConnectionEstablished);
 
         subject.handle_pass_gossip(&logger, pass_target);
@@ -372,29 +454,57 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
-                _performs_logging_in_order: The connection stage \
+                "DEBUG: {test_name}: The connection stage \
                 for Node with IP address {:?} has been updated from {:?} to {:?}.",
                 ip_addr,
                 ConnectionStage::StageZero,
                 ConnectionStage::TcpConnectionEstablished
             ),
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
-                _in_order: Pass gossip received from Node with IP Address {:?} to a Node with \
-                IP Address {:?}. Hence, updating the connection stage of the new Node to StageZero.",
+                "DEBUG: {test_name}: Pass gossip received from Node with IP Address {:?} to a Node with \
+                IP Address {:?}. Updating the stage from TcpConnectionEstablished to StageZero.",
                 ip_addr, pass_target
             ),
         ]);
     }
 
     #[test]
-    #[should_panic(expected = "Can't update the stage from StageZero to StageZero")]
+    fn connection_progress_logs_error_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
+    ) {
+        init_test_logging();
+        let test_name = "connection_progress_logs_error_while_handling_pass_gossip_in_case_tcp_connection_is_not_established";
+        let ip_addr = make_ip(1);
+        let initial_node_descriptor = make_node_descriptor(ip_addr);
+        let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
+        let pass_target = make_ip(2);
+
+        subject.handle_pass_gossip(&Logger::new(test_name), pass_target);
+
+        assert_eq!(
+            subject,
+            ConnectionProgress {
+                initial_node_descriptor,
+                current_peer_addr: pass_target,
+                connection_stage: ConnectionStage::StageZero
+            }
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: Pass gossip received from Node with IP Address 1.1.1.1 to a Node \
+            with IP Address 1.1.1.2. Requested to update the stage from StageZero to StageZero."
+        ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Pass gossip received from Node with IP Address 1.1.1.1 to a Node \
+        with IP Address 1.1.1.2. Can't update the stage from NeighborshipEstablished to StageZero"
+    )]
     fn connection_progress_panics_while_handling_pass_gossip_in_case_tcp_connection_is_not_established(
     ) {
         let ip_addr = make_ip(1);
         let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor);
+        subject.connection_stage = ConnectionStage::NeighborshipEstablished;
         let pass_target = make_ip(2);
 
         subject.handle_pass_gossip(&Logger::new("test"), pass_target);
@@ -908,9 +1018,9 @@ mod tests {
     }
 
     #[actix::test]
-    async fn doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated() {
+    async fn does_not_send_message_to_the_ui_in_case_the_stage_has_not_updated() {
         init_test_logging();
-        let test_name = "doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated";
+        let test_name = "does_not_send_message_to_the_ui_in_case_the_stage_has_not_updated";
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
         let new_stage = initial_stage;
 
@@ -927,21 +1037,29 @@ mod tests {
     }
 
     #[actix::test]
-    async fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
-    ) {
+    async fn sends_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor() {
         init_test_logging();
-        let test_name = "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
+        let test_name = "sends_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
         let initial_stage = OverallConnectionStage::RouteFound;
         let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
             assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name).await;
 
-        assert_eq!(stage, initial_stage);
-        assert_eq!(message_opt, None);
+        assert_eq!(stage, new_stage);
+        assert_eq!(
+            message_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: new_stage.into()
+                }
+                .tmb(0)
+            })
+        );
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: {}: There was an attempt to update the stage of OverallConnectionStatus \
-            from {:?} to {:?}. The request has been discarded.",
+            "DEBUG: {}: The stage of OverallConnectionStatus has been changed \
+                from {:?} to {:?}. A message to the UI was also sent.",
             test_name, initial_stage, new_stage
         ));
     }

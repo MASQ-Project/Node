@@ -15,6 +15,7 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::neighborhood::node_location::get_node_location;
 use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
@@ -27,6 +28,7 @@ use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
+#[cfg(test)]
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
@@ -53,7 +55,7 @@ use std::collections::HashMap;
 use std::env::var;
 use std::fmt;
 use std::fmt::{Debug, Display, Error, Formatter};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::vec::Vec;
@@ -88,19 +90,63 @@ impl Clone for CryptDEPair {
 #[derive(Copy)]
 pub struct CryptDEPair {
     // This has the public key by which this Node is known to other Nodes on the network
-    pub main: &'static dyn CryptDE,
+    pub main: Box<dyn CryptDE>,
     // This has the public key with which this Node instructs exit Nodes to encrypt responses.
     // In production, it is unrelated to the main public key to prevent the exit Node from
     // identifying the originating Node. In tests using --fake-public-key, the alias public key
     // is the main public key reversed.
-    pub alias: &'static dyn CryptDE,
+    pub alias: Box<dyn CryptDE>,
 }
 
-impl Default for CryptDEPair {
-    fn default() -> Self {
+impl Clone for CryptDEPair {
+    fn clone(&self) -> Self {
         CryptDEPair {
-            main: main_cryptde_ref(),
-            alias: alias_cryptde_ref(),
+            main: self.main.dup(),
+            alias: self.alias.dup(),
+        }
+    }
+}
+
+impl Debug for CryptDEPair {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CryptDEPair {{ main: {:?}, alias: {:?} }}",
+            self.main.public_key(),
+            self.alias.public_key()
+        )
+    }
+}
+
+impl From<Chain> for CryptDEPair {
+    fn from(chain: Chain) -> Self {
+        let main = CryptDEReal::new(chain);
+        let alias = CryptDEReal::new(chain);
+        CryptDEPair {
+            main: Box::new(main),
+            alias: Box::new(alias),
+        }
+    }
+}
+
+impl CryptDEPair {
+    pub fn new(main: Box<dyn CryptDE>, alias: Box<dyn CryptDE>) -> Self {
+        CryptDEPair { main, alias }
+    }
+
+    pub fn null() -> Self {
+        #[cfg(test)]
+        {
+            let main = CryptDENull::new(TEST_DEFAULT_CHAIN);
+            let alias = CryptDENull::new(TEST_DEFAULT_CHAIN);
+            CryptDEPair {
+                main: Box::new(main),
+                alias: Box::new(alias),
+            }
+        }
+        #[cfg(not(test))]
+        {
+            panic!("You should not use CryptDEPair::null() in production code. It is only for testing purposes.");
         }
     }
 }
@@ -336,7 +382,7 @@ pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
-    pub suppress_initial_scans: bool,
+    pub automatic_scans_enabled: bool,
     pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
@@ -345,9 +391,9 @@ pub struct BootstrapperConfig {
     pub port_configurations: HashMap<u16, PortConfiguration>,
     pub data_directory: PathBuf,
     pub node_descriptor: NodeDescriptor,
-    pub main_cryptde_null_opt: Option<CryptDENull>,
-    pub alias_cryptde_null_opt: Option<CryptDENull>,
+    pub cryptde_pair: CryptDEPair,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
+    pub new_public_key_opt: Option<bool>,
     pub real_user: RealUser,
     pub payment_thresholds_opt: Option<PaymentThresholds>,
 
@@ -372,7 +418,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans: false,
+            automatic_scans_enabled: true,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -386,9 +432,14 @@ impl BootstrapperConfig {
             port_configurations: HashMap::new(),
             data_directory: PathBuf::new(),
             node_descriptor: NodeDescriptor::default(),
-            main_cryptde_null_opt: None,
-            alias_cryptde_null_opt: None,
+            // This value should not be used in production; it should be replaced during bootstrapping.
+            // If it isn't, it should be impossible to put up a network.
+            cryptde_pair: CryptDEPair::new(
+                Box::new(CryptDEReal::disabled()),
+                Box::new(CryptDEReal::disabled()),
+            ),
             mapping_protocol_opt: None,
+            new_public_key_opt: None,
             real_user: RealUser::new(None, None, None),
             payment_thresholds_opt: Default::default(),
 
@@ -414,9 +465,10 @@ impl BootstrapperConfig {
         self.neighborhood_config = unprivileged.neighborhood_config;
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
+        self.cryptde_pair = unprivileged.cryptde_pair;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
-        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.automatic_scans_enabled = unprivileged.automatic_scans_enabled;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
         self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
@@ -495,16 +547,13 @@ impl ConfiguredByPrivilege for Bootstrapper {
         fdlimit::raise_fd_limit().expect("Could not raise file descriptor limit");
         let unprivileged_config =
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
+        let cryptde_pair = unprivileged_config.cryptde_pair.clone();
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port().await;
-        let (alias_cryptde_null_opt, main_cryptde_null_opt) = self.null_cryptdes_as_trait_objects();
-        let cryptdes = Bootstrapper::initialize_cryptdes(
-            &main_cryptde_null_opt,
-            &alias_cryptde_null_opt,
-            self.config.blockchain_bridge_config.chain,
-        );
+        // initialization of CountryFinder
+        let _ = get_node_location(Some(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
         let node_descriptor = Bootstrapper::make_local_descriptor(
-            cryptdes.main,
+            self.config.cryptde_pair.main.as_ref(),
             self.config.neighborhood_config.mode.node_addr_opt(),
             self.config.blockchain_bridge_config.chain,
         );
@@ -515,7 +564,10 @@ impl ConfiguredByPrivilege for Bootstrapper {
         match &self.config.neighborhood_config.mode {
             NeighborhoodMode::Standard(node_addr, _, _)
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
-            _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
+            _ => Bootstrapper::report_local_descriptor(
+                cryptde_pair.main.as_ref(),
+                &self.config.node_descriptor,
+            ), // here or not coming
         }
         let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
@@ -621,10 +673,11 @@ impl Bootstrapper {
     fn start_actors_and_return_shp_subs(&self) -> StreamHandlerPoolSubs {
         self.actor_system_factory.make_and_start_actors(
             self.config.clone(),
-            Box::new(ActorFactoryReal {}),
+            Box::new(ActorFactoryReal::new(&self.config.cryptde_pair)),
             initialize_database(
                 &self.config.data_directory,
                 DbInitializationConfig::panic_on_migration(),
+                &self.config.db_password_opt,
             ),
         )
     }
@@ -702,19 +755,6 @@ impl Bootstrapper {
             ),
         }
     }
-
-    fn null_cryptdes_as_trait_objects(&self) -> (Option<&dyn CryptDE>, Option<&dyn CryptDE>) {
-        (
-            self.config
-                .alias_cryptde_null_opt
-                .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
-            self.config
-                .main_cryptde_null_opt
-                .as_ref()
-                .map(|cryptde_null| cryptde_null as &dyn CryptDE),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -722,7 +762,7 @@ mod tests {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
-        main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
+        Bootstrapper, BootstrapperConfig, CryptDEPair, EnvironmentWrapper, PortConfiguration,
         RealUser,
     };
     use crate::database::db_initializer::DbInitializationConfig;
@@ -734,9 +774,8 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from_recorder, TestLogOwner};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
@@ -750,6 +789,7 @@ mod tests {
     };
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::make_wallet;
     use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -774,7 +814,9 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, to_string};
+    use sodiumoxide::crypto::box_::curve25519xsalsa20poly1305 as cxsp;
+    use sodiumoxide::crypto::sign as signing;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
@@ -788,6 +830,7 @@ mod tests {
     use tokio;
 
     lazy_static! {
+        static ref BS_CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
     }
 
@@ -939,9 +982,9 @@ mod tests {
             sudo_user: Option<&str>,
         ) -> EnvironmentWrapperMock {
             EnvironmentWrapperMock {
-                sudo_uid: sudo_uid.map(|s| s.to_string()),
-                sudo_gid: sudo_gid.map(|s| s.to_string()),
-                sudo_user: sudo_user.map(|s| s.to_string()),
+                sudo_uid: sudo_uid.map(to_string),
+                sudo_gid: sudo_gid.map(to_string),
+                sudo_user: sudo_user.map(to_string),
             }
         }
     }
@@ -1176,7 +1219,7 @@ mod tests {
                 "--real-user",
                 "123:456:/home/booga",
                 "--chain",
-                "polygon-mumbai",
+                "polygon-amoy",
             ]))
             .await
             .unwrap();
@@ -1215,6 +1258,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--ip",
                     "1.2.3.4",
                     "--clandestine-port",
@@ -1228,16 +1273,15 @@ mod tests {
             .unwrap();
 
         let config = subject.config;
+        assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
         assert_eq!(
-            config.node_descriptor,
-            NodeDescriptor::from((
-                main_cryptde_ref().public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::EthRopsten,
-                main_cryptde_ref()
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("1.2.3.4").unwrap(),
+                &[5123]
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[test]
@@ -1257,6 +1301,7 @@ mod tests {
             vec![SocketAddr::new(IpAddr::from_str("1.2.3.4").unwrap(), 1111)];
         let mut unprivileged_config = BootstrapperConfig::new();
         //values from unprivileged config
+        let chain = unprivileged_config.blockchain_bridge_config.chain;
         let gas_price = 123;
         let blockchain_url_opt = Some("some.service@earth.abc".to_string());
         let clandestine_port_opt = Some(44444);
@@ -1276,8 +1321,8 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
-        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::compute_default(chain));
+        unprivileged_config.automatic_scans_enabled = true;
         unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
@@ -1300,9 +1345,9 @@ mod tests {
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
             privileged_config.scan_intervals_opt,
-            Some(ScanIntervals::default())
+            Some(ScanIntervals::compute_default(chain))
         );
-        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(privileged_config.automatic_scans_enabled, true);
         assert_eq!(
             privileged_config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
@@ -1320,6 +1365,7 @@ mod tests {
 
     #[actix::test]
     async fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+        init_test_logging();
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
@@ -1338,23 +1384,37 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["--ip", "1.2.3.4", "--clandestine-port", "5123"]),
+                &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
+                    "--ip",
+                    "1.2.3.4",
+                    "--clandestine-port",
+                    "5123",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .await
             .unwrap();
 
         let config = subject.config;
+        assert_eq!(config.node_descriptor.blockchain, Chain::BaseSepolia);
         assert_eq!(
-            config.node_descriptor,
-            NodeDescriptor::from((
-                main_cryptde_ref().public_key(),
-                &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5123]),
-                Chain::EthRopsten,
-                main_cryptde_ref()
+            config.node_descriptor.node_addr_opt,
+            Some(NodeAddr::new(
+                &IpAddr::from_str("1.2.3.4").unwrap(),
+                &[5123]
             ))
         );
-        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://eth-ropsten:.+@1\\.2\\.3\\.4:5123");
+        assert_ne!(
+            config.cryptde_pair.main.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
+        assert_ne!(
+            config.cryptde_pair.alias.public_key().as_slice(),
+            &[0u8; cxsp::PUBLICKEYBYTES + signing::PUBLICKEYBYTES]
+        );
+        TestLogHandler::new().exists_log_matching("INFO: Bootstrapper: MASQ Node local descriptor: masq://base-sepolia:.+@1\\.2\\.3\\.4:5123");
     }
 
     #[actix::test]
@@ -1379,6 +1439,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--data-directory",
                     data_dir.to_str().unwrap(),
                     "--clandestine-port",
@@ -1418,7 +1480,14 @@ mod tests {
 
         subject
             .initialize_as_unprivileged(
-                &make_simplified_multi_config(["--ip", "1.2.3.4", "--gas-price", "11"]),
+                &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
+                    "--ip",
+                    "1.2.3.4",
+                    "--gas-price",
+                    "11",
+                ]),
                 &mut FakeStreamHolder::new().streams(),
             )
             .await
@@ -1498,6 +1567,8 @@ mod tests {
             "init_as_privileged_stores_dns_servers_and_passes_them_to_actor_system_factory_for_proxy_client_in_init_as_unprivileged",
         );
         let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
             "--dns-servers",
             "1.2.3.4,2.3.4.5",
             "--ip",
@@ -1561,7 +1632,12 @@ mod tests {
             .build();
 
         subject
-            .initialize_as_privileged(&make_simplified_multi_config(["--ip", "111.111.111.111"]))
+            .initialize_as_privileged(&make_simplified_multi_config([
+                "--blockchain-service-url",
+                "https://booga.com",
+                "--ip",
+                "111.111.111.111",
+            ]))
             .await
             .unwrap();
     }
@@ -1599,18 +1675,17 @@ mod tests {
             &[3456u16, 4567u16],
         );
         let cryptde_ref = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
             let descriptor = Bootstrapper::make_local_descriptor(
-                cryptdes.main,
+                BS_CRYPTDE_PAIR.main.as_ref(),
                 Some(node_addr),
                 TEST_DEFAULT_CHAIN,
             );
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+            Bootstrapper::report_local_descriptor(BS_CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            cryptdes.main
+            BS_CRYPTDE_PAIR.main.as_ref()
         };
         let expected_descriptor = format!(
-            "masq://eth-ropsten:{}@2.3.4.5:3456/4567",
+            "masq://base-sepolia:{}@2.3.4.5:3456/4567",
             cryptde_ref.public_key_to_descriptor_fragment(cryptde_ref.public_key())
         );
         TestLogHandler::new().exists_log_containing(
@@ -1642,15 +1717,17 @@ mod tests {
         let _lock = INITIALIZATION.lock();
         init_test_logging();
         let cryptdes = {
-            let cryptdes = Bootstrapper::initialize_cryptdes(&None, &None, TEST_DEFAULT_CHAIN);
-            let descriptor =
-                Bootstrapper::make_local_descriptor(cryptdes.main, None, TEST_DEFAULT_CHAIN);
-            Bootstrapper::report_local_descriptor(cryptdes.main, &descriptor);
+            let descriptor = Bootstrapper::make_local_descriptor(
+                BS_CRYPTDE_PAIR.main.as_ref(),
+                None,
+                TEST_DEFAULT_CHAIN,
+            );
+            Bootstrapper::report_local_descriptor(BS_CRYPTDE_PAIR.main.as_ref(), &descriptor);
 
-            cryptdes
+            BS_CRYPTDE_PAIR.clone()
         };
         let expected_descriptor = format!(
-            "masq://eth-ropsten:{}@:",
+            "masq://base-sepolia:{}@:",
             cryptdes
                 .main
                 .public_key_to_descriptor_fragment(cryptdes.main.public_key())
@@ -1679,8 +1756,8 @@ mod tests {
             ));
             assert_eq!(decrypted_data, expected_data)
         };
-        assert_round_trip(cryptdes.main);
-        assert_round_trip(cryptdes.alias);
+        assert_round_trip(cryptdes.main.as_ref());
+        assert_round_trip(cryptdes.alias.as_ref());
     }
 
     #[actix::test]
@@ -1713,6 +1790,8 @@ mod tests {
         subject
             .initialize_as_unprivileged(
                 &make_simplified_multi_config([
+                    "--blockchain-service-url",
+                    "https://booga.com",
                     "--clandestine-port",
                     "1234",
                     "--ip",
@@ -1742,6 +1821,8 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists("bootstrapper", "initialize_as_unprivileged_moves_streams_from_listener_handlers_to_stream_handler_pool");
         init_test_logging();
         let args = [
+            "--blockchain-service-url",
+            "https://booga.com",
             "--ip",
             "111.111.111.111",
             "--data-directory",
@@ -2275,7 +2356,9 @@ mod tests {
                 StreamHandlerPoolCluster {
                     recording: Some(recording),
                     awaiter: Some(awaiter),
-                    subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                    subs: make_stream_handler_pool_subs_from_recorder(
+                            &stream_handler_pool.start(),
+                        ),
                 }
             };
             ActorSystemFactoryActiveMock {

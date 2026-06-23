@@ -5,7 +5,6 @@ use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
 };
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
-use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData, PublicKey};
 use crate::sub_lib::hopper::MessageType;
 use crate::sub_lib::versioned_data::StepError;
@@ -15,16 +14,20 @@ use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::fmt::{Debug, Display};
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GossipNodeRecord {
     pub signed_data: PlainData,
     pub signature: CryptData,
+    // This field should probably not exist. If the Gossip source is our next-door neighbor,
+    // we can get its IP address from the network stack, which is more reliable than an
+    // unsigned data field. If the Gossip source is not our next-door neighbor, we should
+    // not know its IP address anyway.
     pub node_addr_opt: Option<NodeAddr>,
 }
 
@@ -378,14 +381,19 @@ impl Gossip_0v1 {
                     to: k.clone(),
                 })
             });
+            let country_code = match &nri.country_code_opt {
+                Some(cc) => cc.clone(),
+                None => "ZZ".to_string(),
+            };
             node_renderables.push(NodeRenderable {
                 inner: Some(NodeRenderableInner {
                     version: nri.version,
                     accepts_connections: nri.accepts_connections,
                     routes_data: nri.routes_data,
+                    country_code,
                 }),
                 public_key: nri.public_key.clone(),
-                node_addr: addr.clone(),
+                node_addr_opt: addr.clone(),
                 known_source: nri.public_key == source.public_key,
                 known_target: nri.public_key == target.public_key,
                 is_present: true,
@@ -395,7 +403,7 @@ impl Gossip_0v1 {
             node_renderables.push(NodeRenderable {
                 inner: None,
                 public_key: k.clone(),
-                node_addr: None,
+                node_addr_opt: None,
                 known_source: false,
                 known_target: false,
                 is_present: false,
@@ -460,12 +468,79 @@ impl<'a> GossipBuilder<'a> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct AccessibleGossipRecord {
+    pub signed_gossip: PlainData,
+    pub signature: CryptData,
+    pub node_addr_opt: Option<NodeAddr>,
+    pub inner: NodeRecordInner_0v1,
+}
+
+impl Display for AccessibleGossipRecord {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.node_addr_opt {
+            Some(ref addr) => {
+                write!(
+                    f,
+                    "{} {} {} {} {} {} {} {}",
+                    self.inner.behavior_string(),
+                    self.inner.version_string(),
+                    self.inner.country_code_string(),
+                    self.inner.public_key_string(),
+                    addr.ip_addr(),
+                    self.inner.wallet_string(),
+                    self.inner.rate_pack_string(),
+                    self.inner.neighbors_string()
+                )
+            }
+            None => write!(f, "{}", self.inner),
+        }
+    }
+}
+
+impl AccessibleGossipRecord {
+    pub fn regenerate_signed_gossip(&mut self, cryptde: &dyn CryptDE) {
+        let (signed_gossip, signature) = regenerate_signed_gossip(&self.inner, cryptde);
+        self.signed_gossip = signed_gossip;
+        self.signature = signature;
+    }
+}
+
+impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
+    type Error = String;
+
+    fn try_from(value: GossipNodeRecord) -> Result<Self, Self::Error> {
+        match serde_cbor::de::from_slice(value.signed_data.as_slice()) {
+            Ok(inner) => Ok(AccessibleGossipRecord {
+                signed_gossip: value.signed_data,
+                signature: value.signature,
+                node_addr_opt: value.node_addr_opt,
+                inner,
+            }),
+            Err(e) => Err(format!("{}", e)),
+        }
+    }
+}
+
+pub fn regenerate_signed_gossip(
+    inner: &NodeRecordInner_0v1,
+    cryptde: &dyn CryptDE, // Must be the correct CryptDE for the Node from which inner came: used for signing
+) -> (PlainData, CryptData) {
+    let signed_gossip =
+        PlainData::from(serde_cbor::ser::to_vec(&inner).expect("Serialization failed"));
+    let signature = match cryptde.sign(&signed_gossip) {
+        Ok(sig) => sig,
+        Err(e) => unimplemented!("TODO: Signing error: {:?}", e),
+    };
+    (signed_gossip, signature)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::gossip::GossipBuilder;
     use super::*;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_node_record, make_node_record_f,
+        db_from_node, make_node_record, make_node_record_cc, make_node_record_f,
     };
     use crate::test_utils::{assert_string_contains, vec_to_btset};
     use std::str::FromStr;
@@ -557,6 +632,52 @@ mod tests {
     }
 
     #[test]
+    fn accessible_gossip_record_to_string_without_ip() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), false));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v0 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
+    fn accessible_gossip_record_to_string_with_ip_and_really_big_version() {
+        let mut node_record = make_node_record(1234, true);
+        node_record.inner.country_code_opt = Some("AD".to_string());
+        let db = db_from_node(&node_record);
+        let mut subject = AccessibleGossipRecord::from((&db, node_record.public_key(), true));
+        subject.inner.version = 4_000_000_000;
+
+        let result = subject.to_string();
+
+        assert_eq!(
+            result,
+            "AR v4000000000 AD AQIDBA 1.2.3.4 0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0 1235|1434|1237|1634 []"
+        );
+    }
+
+    #[test]
     fn gossip_node_record_keeps_all_half_neighbors() {
         let mut this_node = make_node_record(1234, true);
         let full_neighbor_one = make_node_record(2345, true);
@@ -622,7 +743,7 @@ mod tests {
 
     #[test]
     fn gossip_node_record_is_debug_formatted_to_be_human_readable() {
-        let node = make_node_record(1234, true);
+        let node = make_node_record_cc(1234, true, "AU");
         let mut db = db_from_node(&node);
         db.root_mut().increment_version();
         db.root_mut().increment_version();
@@ -635,8 +756,8 @@ mod tests {
             "\n\tinner: NodeRecordInner_0v1 {\n\t\tpublic_key: 0x01020304,\n\t\tnode_addr_opt: Some(1.2.3.4:[1234]),\n\t\tearning_wallet: Wallet { kind: Address(0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0) },\n\t\trate_pack: RatePack { routing_byte_rate: 1235, routing_service_rate: 1434, exit_byte_rate: 1237, exit_service_rate: 1634 },\n\t\tneighbors: [],\n\t\tversion: 2,\n\t},",
             "\n\tnode_addr_opt: Some(1.2.3.4:[1234]),",
             "\n\tsigned_data:
-Length: 229 (0xe5) bytes
-0000:   a7 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
+Length: 249 (0xf9) bytes
+0000:   a8 6a 70 75  62 6c 69 63  5f 6b 65 79  44 01 02 03   .jpublic_keyD...
 0010:   04 6e 65 61  72 6e 69 6e  67 5f 77 61  6c 6c 65 74   .nearning_wallet
 0020:   a1 67 61 64  64 72 65 73  73 94 18 54  18 69 00 18   .gaddress..T.i..
 0030:   db 18 8d 18  6e 09 18 37  18 49 18 71  18 33 18 d1   ....n..7.I.q.3..
@@ -650,11 +771,12 @@ Length: 229 (0xe5) bytes
 00b0:   6e 65 69 67  68 62 6f 72  73 80 73 61  63 63 65 70   neighbors.saccep
 00c0:   74 73 5f 63  6f 6e 6e 65  63 74 69 6f  6e 73 f5 6b   ts_connections.k
 00d0:   72 6f 75 74  65 73 5f 64  61 74 61 f5  67 76 65 72   routes_data.gver
-00e0:   73 69 6f 6e  02                                      sion.",
+00e0:   73 69 6f 6e  02 70 63 6f  75 6e 74 72  79 5f 63 6f   sion.pcountry_co
+00f0:   64 65 5f 6f  70 74 62 41  55                         de_optbAU",
 	        "\n\tsignature:
 Length: 24 (0x18) bytes
-0000:   01 02 03 04  8a 7e b2 0e  c4 ea fe d8  ac 3c 89 2d   .....~.......<.-
-0010:   2d f1 e9 76  d1 76 db 67                             -..v.v.g"
+0000:   01 02 03 04  ef 19 0e 89  b5 a9 b1 93  33 84 54 9f   ............3.T.
+0010:   88 a2 10 50  79 1c 6f e7                             ...Py.o."
         );
 
         assert_eq!(result, expected);
@@ -687,11 +809,11 @@ Length: 4 (0x4) bytes
 
     #[test]
     fn to_dot_graph_returns_gossip_in_dotgraph_format() {
-        let mut source_node = make_node_record(1234, true);
+        let mut source_node = make_node_record_cc(1234, true, "AU");
         source_node.inner.public_key = PublicKey::new(&b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[..]);
-        let mut target_node = make_node_record(2345, true);
+        let mut target_node = make_node_record_cc(2345, true, "GB");
         target_node.inner.public_key = PublicKey::new(&b"ZYXWVUTSRQPONMLKJIHGFEDCBA"[..]);
-        let neighbor = make_node_record(3456, false);
+        let neighbor = make_node_record_cc(3456, false, "FR");
         let mut db = db_from_node(&source_node);
         db.add_node(target_node.clone()).unwrap();
         db.add_node(neighbor.clone()).unwrap();
@@ -715,14 +837,14 @@ Length: 4 (0x4) bytes
         let result = gossip.to_dot_graph(&source_node, &target_node);
 
         assert_string_contains(&result, "digraph db { ");
-        assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0\\nAwQFBg\"]; ");
+        assert_string_contains(&result, "\"AwQFBg\" [label=\"AR v0 FR\\nAwQFBg\"]; ");
         assert_string_contains(
             &result,
-            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
+            "\"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo\" [label=\"AR v1 AU\\nQUJDREVG\\n1.2.3.4:1234\"] [style=filled]; ",
         );
         assert_string_contains(
             &result,
-            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
+            "\"WllYV1ZVVFNSUVBPTk1MS0pJSEdGRURDQkE\" [label=\"AR v0 GB\\nWllYV1ZV\\n2.3.4.5:2345\"] [shape=box]; ",
         );
         assert_string_contains(
             &result,

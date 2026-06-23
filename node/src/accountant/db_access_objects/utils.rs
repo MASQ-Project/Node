@@ -1,26 +1,35 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::db_access_objects::failed_payable_dao::FailedTx;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::accountant::db_access_objects::receivable_dao::ReceivableAccount;
+use crate::accountant::db_access_objects::sent_payable_dao::SentTx;
 use crate::accountant::db_big_integer::big_int_divider::BigIntDivider;
 use crate::accountant::{checked_conversion, gwei_to_wei, sign_conversion};
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 use crate::sub_lib::accountant::PaymentThresholds;
+use ethereum_types::H256;
 use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
 use rusqlite::{Row, Statement, ToSql};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
+use std::string::ToString;
 use std::time::Duration;
 use std::time::SystemTime;
 
-pub fn to_time_t(system_time: SystemTime) -> i64 {
+pub type TxHash = H256;
+pub type RowId = u64;
+pub type TxIdentifiers = HashMap<TxHash, RowId>;
+
+pub fn to_unix_timestamp(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
         Ok(d) => sign_conversion::<u64, i64>(d.as_secs()).expect("MASQNode has expired"),
         Err(e) => panic!(
@@ -30,13 +39,54 @@ pub fn to_time_t(system_time: SystemTime) -> i64 {
     }
 }
 
-pub fn now_time_t() -> i64 {
-    to_time_t(SystemTime::now())
+pub fn current_unix_timestamp() -> i64 {
+    to_unix_timestamp(SystemTime::now())
 }
 
-pub fn from_time_t(time_t: i64) -> SystemTime {
-    let interval = Duration::from_secs(time_t as u64);
+pub fn from_unix_timestamp(unix_timestamp: i64) -> SystemTime {
+    let interval = Duration::from_secs(unix_timestamp as u64);
     SystemTime::UNIX_EPOCH + interval
+}
+
+pub fn sql_values_of_failed_tx(failed_tx: &FailedTx) -> String {
+    let amount_checked = checked_conversion::<u128, i128>(failed_tx.amount_minor);
+    let gas_price_wei_checked = checked_conversion::<u128, i128>(failed_tx.gas_price_minor);
+    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+    let (gas_price_wei_high_b, gas_price_wei_low_b) =
+        BigIntDivider::deconstruct(gas_price_wei_checked);
+    format!(
+        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}', '{}')",
+        failed_tx.hash,
+        failed_tx.receiver_address,
+        amount_high_b,
+        amount_low_b,
+        failed_tx.timestamp,
+        gas_price_wei_high_b,
+        gas_price_wei_low_b,
+        failed_tx.nonce,
+        failed_tx.reason,
+        failed_tx.status
+    )
+}
+
+pub fn sql_values_of_sent_tx(sent_tx: &SentTx) -> String {
+    let amount_checked = checked_conversion::<u128, i128>(sent_tx.amount_minor);
+    let gas_price_wei_checked = checked_conversion::<u128, i128>(sent_tx.gas_price_minor);
+    let (amount_high_b, amount_low_b) = BigIntDivider::deconstruct(amount_checked);
+    let (gas_price_wei_high_b, gas_price_wei_low_b) =
+        BigIntDivider::deconstruct(gas_price_wei_checked);
+    format!(
+        "('{:?}', '{:?}', {}, {}, {}, {}, {}, {}, '{}')",
+        sent_tx.hash,
+        sent_tx.receiver_address,
+        amount_high_b,
+        amount_low_b,
+        sent_tx.timestamp,
+        gas_price_wei_high_b,
+        gas_price_wei_low_b,
+        sent_tx.nonce,
+        sent_tx.status
+    )
 }
 
 pub struct DaoFactoryReal {
@@ -192,11 +242,11 @@ impl<N: Copy + Display> CustomQuery<N> {
         max_age: u64,
         timestamp: SystemTime,
     ) -> RusqliteParamsWithOwnedToSql {
-        let now = to_time_t(timestamp);
-        let age_to_time_t = |age_limit| now - checked_conversion::<u64, i64>(age_limit);
+        let now = to_unix_timestamp(timestamp);
+        let age_to_unix_timestamp = |age_limit| now - checked_conversion::<u64, i64>(age_limit);
         vec![
-            (":min_timestamp", Box::new(age_to_time_t(max_age))),
-            (":max_timestamp", Box::new(age_to_time_t(min_age))),
+            (":min_timestamp", Box::new(age_to_unix_timestamp(max_age))),
+            (":max_timestamp", Box::new(age_to_unix_timestamp(min_age))),
         ]
     }
 
@@ -288,17 +338,17 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
                 let gwei =  (account.balance_wei / WEIS_IN_GWEI) as i64;
                 if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
                  between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
-                        if account.balance_wei.is_positive() {"1"}else{"-1"},
-                        account.wallet,
-                        account.balance_wei
-            )}
-          },
+                                                 if account.balance_wei.is_positive() {"1"}else{"-1"},
+                                                 account.wallet,
+                                                 account.balance_wei
+                )}
+            },
         })
         .collect()
 }
 
 fn to_age(timestamp: SystemTime) -> u64 {
-    (to_time_t(SystemTime::now()) - to_time_t(timestamp)) as u64
+    (to_unix_timestamp(SystemTime::now()) - to_unix_timestamp(timestamp)) as u64
 }
 
 #[allow(clippy::type_complexity)]
@@ -434,7 +484,7 @@ impl ThresholdUtils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
     use itertools::Itertools;
@@ -465,8 +515,8 @@ mod tests {
         };
         let assigned_value_1 = get_assigned_value(param_pair_1.1.to_sql().unwrap());
         let assigned_value_2 = get_assigned_value(param_pair_2.1.to_sql().unwrap());
-        assert_eq!(assigned_value_1, to_time_t(now) - 10000);
-        assert_eq!(assigned_value_2, to_time_t(now) - 5555)
+        assert_eq!(assigned_value_1, to_unix_timestamp(now) - 10000);
+        assert_eq!(assigned_value_2, to_unix_timestamp(now) - 5555)
     }
 
     #[test]
@@ -607,10 +657,10 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Must be wrong, moment way far in the past")]
-    fn to_time_t_does_not_like_time_traveling() {
+    fn to_unix_timestamp_does_not_like_time_traveling() {
         let far_far_before = UNIX_EPOCH.checked_sub(Duration::from_secs(1)).unwrap();
 
-        let _ = to_time_t(far_far_before);
+        let _ = to_unix_timestamp(far_far_before);
     }
 
     #[test]

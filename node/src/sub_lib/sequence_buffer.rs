@@ -38,7 +38,7 @@ impl<'a> From<&'a TransmitDataMsg> for SequencedPacket {
     fn from(tdm: &'a TransmitDataMsg) -> Self {
         SequencedPacket::new(
             tdm.data.clone(),
-            tdm.sequence_number.unwrap_or(0),
+            tdm.sequence_number_opt.unwrap_or(0),
             tdm.last_data,
         )
     }
@@ -254,7 +254,7 @@ mod tests {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
-            sequence_number: None,
+            sequence_number_opt: None,
         };
 
         let result = SequencedPacket::from(&tdm);
@@ -268,7 +268,7 @@ mod tests {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
-            sequence_number: Some(1),
+            sequence_number_opt: Some(1),
         };
 
         let result = SequencedPacket::from(&tdm);
@@ -281,7 +281,7 @@ mod tests {
             endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: false,
             data: vec![4, 2, 5, 67],
-            sequence_number: Some(4),
+            sequence_number_opt: Some(4),
         };
 
         let result = SequencedPacket::from(&tdm);

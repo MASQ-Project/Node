@@ -370,22 +370,34 @@ fn split_possibly_quoted_cml(input: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command_context_factory::CommandContextFactoryReal;
-    use crate::command_factory::CommandFactoryReal;
-    use crate::terminal::test_utils::allow_flushed_writings_to_finish;
-    use crate::test_utils::mocks::{
-        AsyncTestStreamHandles, CommandContextMock, CommandExecutionHelperMock, CommandFactoryMock,
-        MockCommand, TermInterfaceMock,
+    use crate::command_context::{CommandContext, DEFAULT_TRANSACT_TIMEOUT_MILLIS};
+    use crate::commands::check_password_command::CheckPasswordCommand;
+    use crate::communications::broadcast_handler::{
+        BroadcastHandleInactive, BroadcastHandler, BroadcastHandlerReal,
     };
-    use futures::FutureExt;
-    use masq_lib::messages::{ToMessageBody, UiDescriptorResponse};
-    use masq_lib::utils::{find_free_port, running_test, slice_of_strs_to_vec_of_strings};
-    use std::io;
-    use std::io::ErrorKind;
-    use std::num::NonZeroUsize;
-    use std::panic::AssertUnwindSafe;
+    use crate::test_utils::mocks::TestStreamFactory;
+    use crossbeam_channel::{bounded, Sender};
+    use masq_lib::messages::UiShutdownRequest;
+    use masq_lib::messages::{ToMessageBody, UiCheckPasswordResponse, UiUndeliveredFireAndForget};
+    use masq_lib::test_utils::mock_websockets_server::MockWebSocketsServer;
+    use masq_lib::utils::{find_free_port, running_test, to_string};
+    use std::thread;
+    use std::time::Duration;
 
-    async fn test_handles_nonexistent_server(is_interactive: bool) {
+    #[derive(Debug)]
+    struct TestCommand {}
+
+    impl Command for TestCommand {
+        fn execute<'a>(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
+            match context.transact(UiShutdownRequest {}.tmb(1), DEFAULT_TRANSACT_TIMEOUT_MILLIS) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(CommandError::Other(format!("{:?}", e))),
+            }
+        }
+    }
+
+    #[test]
+    fn handles_nonexistent_server() {
         let ui_port = find_free_port();
         let subject = CommandProcessorFactory::default();
         let terminal_interface_in_either = if !is_interactive {

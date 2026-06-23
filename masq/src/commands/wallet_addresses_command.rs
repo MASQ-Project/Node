@@ -10,8 +10,7 @@ use async_trait::async_trait;
 use clap::{Arg, Command as ClapCommand};
 use masq_lib::implement_as_any;
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
@@ -77,7 +76,7 @@ impl Command for WalletAddressesCommand {
         );
         Ok(())
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]

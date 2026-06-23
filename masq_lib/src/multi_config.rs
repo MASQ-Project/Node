@@ -2,7 +2,8 @@
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
 #[allow(unused_imports)]
-use clap::{ArgMatches, Command};
+use clap::{value_t, values_t};
+use clap::{App, ArgMatches, Command, Error};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
@@ -71,9 +72,10 @@ impl MultiConfig {
     ) -> Result<MultiConfig, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged: Box<dyn VirtualCommandLine> = vcls
+        let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
+
         let arg_matches = match schema
             .clone()
             .try_get_matches_from(merged.args())
@@ -86,6 +88,7 @@ impl MultiConfig {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
+
         Ok(MultiConfig { arg_matches })
     }
 
@@ -108,7 +111,7 @@ impl MultiConfig {
         }
     }
 
-    pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
+    pub fn make_configurator_error(e: Error) -> ConfiguratorError {
         let invalid_value_patterns = vec![
             ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
             ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
@@ -234,6 +237,9 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+    fn is_computed(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -358,8 +364,17 @@ impl EnvironmentVcl {
     }
 }
 
+#[derive(Debug)]
 pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
+}
+
+impl Clone for ConfigFileVcl {
+    fn clone(&self) -> Self {
+        ConfigFileVcl {
+            vcl_args: self.vcl_args.iter().map(|arg| arg.dup()).collect(),
+        }
+    }
 }
 
 impl VirtualCommandLine for ConfigFileVcl {
@@ -386,8 +401,8 @@ impl Display for ConfigFileVclError {
         match self {
             ConfigFileVclError::OpenError(path, _) => write!(
                 fmt,
-                "Couldn't open configuration file {:?}. Are you sure it exists?",
-                path
+                "Couldn't open configuration file \"{}\". Are you sure it exists?",
+                path.to_string_lossy()
             ),
             ConfigFileVclError::CorruptUtf8(path) => write!(
                 fmt,
@@ -512,6 +527,7 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::utils::to_string;
     use clap::builder::ValueRange;
     use clap::parser::ValueSource;
     use clap::{value_parser, Arg, Command};
@@ -969,7 +985,7 @@ pub mod tests {
             "--other_takes_no_value",
         ]
         .into_iter()
-        .map(|s| s.to_string())
+        .map(to_string)
         .collect();
 
         let subject = CommandLineVcl::new(command_line.clone());
@@ -992,10 +1008,7 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
-        let command_line: Vec<String> = vec!["", "value"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        let command_line: Vec<String> = vec!["", "value"].into_iter().map(to_string).collect();
 
         CommandLineVcl::new(command_line.clone());
     }

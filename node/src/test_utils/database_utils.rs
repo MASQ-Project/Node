@@ -2,11 +2,15 @@
 
 #![cfg(test)]
 
-use crate::accountant::db_access_objects::dao_utils::VigilantRusqliteFlatten;
-use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::accountant::db_access_objects::utils::VigilantRusqliteFlatten;
 use crate::database::db_initializer::ExternalData;
+use crate::database::rusqlite_wrappers::ConnectionWrapper;
 
 use crate::database::db_migrations::db_migrator::DbMigrator;
+use crate::db_config::persistent_configuration::{
+    PersistentConfiguration, PersistentConfigurationFactory,
+};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::shared_schema::NeighborhoodMode;
@@ -103,10 +107,16 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
         })
 }
 
+pub fn assert_table_exists(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let result = conn.prepare(&format!("select * from {}", table_name));
+    assert!(result.is_ok(), "Table {} should exist", table_name);
+}
+
 pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &str) {
-    let error_stm = conn
-        .prepare(&format!("select * from {}", table_name))
-        .unwrap_err();
+    let error_stm = match conn.prepare(&format!("select * from {}", table_name)) {
+        Ok(_) => panic!("Table {} should not exist, but it does", table_name),
+        Err(e) => e,
+    };
     let error_msg = match error_stm {
         Error::SqliteFailure(_, Some(msg)) => msg,
         x => panic!("we expected SqliteFailure but we got: {:?}", x),
@@ -196,7 +206,7 @@ fn contains_particular_list_of_key_words(
             found += 1
         }
     });
-    assert_eq!(found,1, "We found {} occurrences of the searched line in the tested sql although only a one is considered correct", found)
+    assert_eq!(found, 1, "We found {} occurrences of the searched line in the tested sql although only a one is considered correct", found)
 }
 
 fn prepare_expected_vectors_of_words_including_sorting(
@@ -207,7 +217,7 @@ fn prepare_expected_vectors_of_words_including_sorting(
         .map(|slice_of_strs| {
             let mut one_line = slice_of_strs
                 .into_iter()
-                .map(|word| word.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>();
             one_line.sort();
             one_line
@@ -233,7 +243,7 @@ fn parse_sql_to_pieces(sql: &str) -> SQLLinesChoppedIntoWords {
             let mut vec_of_words = sql_line
                 .split(|char: char| char.is_whitespace())
                 .filter(|chunk| !chunk.is_empty())
-                .map(|chunk| chunk.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>();
             vec_of_words.sort();
             vec_of_words
@@ -300,5 +310,28 @@ pub fn make_external_data() -> ExternalData {
         chain: TEST_DEFAULT_CHAIN,
         neighborhood_mode: NeighborhoodMode::Standard,
         db_password_opt: None,
+    }
+}
+
+pub struct PersistentConfigurationFactoryMock {
+    mock_opt: RefCell<Option<PersistentConfigurationMock>>,
+}
+
+impl PersistentConfigurationFactory for PersistentConfigurationFactoryMock {
+    fn make(&self) -> Box<dyn PersistentConfiguration> {
+        Box::new(
+            self.mock_opt
+                .borrow_mut()
+                .take()
+                .expect("PersistentConfigurationFactoryTest already used"),
+        )
+    }
+}
+
+impl PersistentConfigurationFactoryMock {
+    pub fn new(mock: PersistentConfigurationMock) -> Self {
+        Self {
+            mock_opt: RefCell::new(Some(mock)),
+        }
     }
 }

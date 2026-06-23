@@ -50,7 +50,7 @@ pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,
-    pub sub: Recipient<StreamShutdownMsg>,
+    pub dispatcher_sub: Recipient<StreamShutdownMsg>,
 }
 
 impl Debug for RemoveStreamMsg {
@@ -96,8 +96,11 @@ mod tests {
 
     #[actix::test]
     async fn pool_bind_message_is_debug() {
-        let dispatcher_subs = peer_actors_builder().build().dispatcher;
-        let stream_handler_pool_subs = make_stream_handler_pool_subs_from(None);
+        let (dispatcher, _, _) = make_recorder();
+        let dispatcher_subs = make_dispatcher_subs_from_recorder(&dispatcher.start());
+        let (stream_handler_pool, _, _) = make_recorder();
+        let stream_handler_pool_subs =
+            make_stream_handler_pool_subs_from_recorder(&stream_handler_pool.start());
         let neighborhood_subs = peer_actors_builder().build().neighborhood;
         let subject = PoolBindMessage {
             dispatcher_subs,

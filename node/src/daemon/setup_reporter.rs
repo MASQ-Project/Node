@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::{app_head, app_node};
-use crate::bootstrapper::BootstrapperConfig;
+use crate::bootstrapper::{BootstrapperConfig, CryptDEPair};
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
@@ -18,13 +18,15 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_fundamentals, DirsWrapper, DirsWrapperReal,
+    data_directory_from_context, determine_user_specific_data, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
-use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
+use crate::sub_lib::cryptde::CryptDE;
+use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
+use clap::{value_t, App};
 use crate::test_utils::main_cryptde;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
@@ -36,7 +38,10 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::{add_chain_specific_directory, AutomapProtocol, ExpectValue};
+use masq_lib::shared_schema::{data_directory_arg, shared_app, ConfiguratorError};
+use masq_lib::utils::{
+    add_chain_specific_directory, to_string, ExpectValue, AutomapProtocol, ATA_DIRECTORY_DAEMON_HELP,
+};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -45,10 +50,16 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
-    blanked_arg: "chain",
-    linked_arg: "data-directory",
-}];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[
+    // If we have chain A and data directory X, and then an incoming_setup arrives with chain blanked out and data
+    // directory Y, we'll preserve the blank chain, but resurrect data directory X. (I'm not sure this is correct;
+    // perhaps if we're going to take advantage of a default chain, we should also use the default chain's data
+    // directory. --Dan)
+    ErrorSensitiveArgPair {
+        blanked_arg: "chain",
+        linked_arg: "data-directory",
+    },
+];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -58,6 +69,10 @@ pub fn setup_cluster_from(input: Vec<(&str, &str, UiSetupResponseValueStatus)>) 
         .into_iter()
         .map(|(k, v, s)| (k.to_string(), UiSetupResponseValue::new(k, v, s)))
         .collect::<SetupCluster>()
+}
+
+fn setup_reporter_shared_app() -> App<'static, 'static> {
+    shared_app(app_head()).arg(data_directory_arg(DATA_DIRECTORY_DAEMON_HELP.as_str()))
 }
 
 pub trait SetupReporter {
@@ -109,6 +124,10 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("DEFAULTS", &default_setup);
         eprintln_setup("EXISTING", &existing_setup);
         eprintln_setup("BLANKED-OUT FORMER VALUES", &blanked_out_former_values);
+        eprintln_setup(
+            "PREVENTION TO ERR INDUCED SETUP IMPAIRMENTS",
+            &prevention_to_err_induced_setup_impairments,
+        );
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
@@ -212,7 +231,7 @@ impl SetupReporterReal {
     }
 
     pub fn get_default_params() -> SetupCluster {
-        let schema = shared_app(app_head());
+        let schema = setup_reporter_shared_app();
         schema
             .get_arguments()
             .flat_map(|arg| {
@@ -482,24 +501,27 @@ impl SetupReporterReal {
         command_line_opt: Option<Vec<String>>,
         environment: bool,
         config_file: bool,
-    ) -> Result<MultiConfig, ConfiguratorError> {
-        let app = app_node();
+    ) -> Result<MultiConfig<'a>, ConfiguratorError> {
+        let app = setup_reporter_shared_app();
         let mut vcls: Vec<Box<dyn VirtualCommandLine>> = vec![];
         if let Some(command_line) = command_line_opt.clone() {
             vcls.push(Box::new(CommandLineVcl::new(command_line)));
         }
-        if environment {
-            vcls.push(Box::new(EnvironmentVcl::new(&app)));
-        }
         if config_file {
             let command_line = command_line_opt.unwrap_or_default();
-            let (config_file_path, user_specified, _data_directory, _real_user) =
-                determine_fundamentals(dirs_wrapper, &app, &command_line)?;
-            let config_file_vcl = match ConfigFileVcl::new(&config_file_path, user_specified) {
+            let user_specific_data =
+                determine_user_specific_data(dirs_wrapper, &app, &command_line)?;
+            let config_file_vcl = match ConfigFileVcl::new(
+                &user_specific_data.config_file.item,
+                user_specific_data.config_file.user_specified,
+            ) {
                 Ok(cfv) => cfv,
                 Err(e) => return Err(ConfiguratorError::required("config-file", &e.to_string())),
             };
             vcls.push(Box::new(config_file_vcl));
+        }
+        if environment {
+            vcls.push(Box::new(EnvironmentVcl::new(&app)));
         }
         make_new_multi_config(&app, vcls)
     }
@@ -515,6 +537,16 @@ impl SetupReporterReal {
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let mut bootstrapper_config = BootstrapperConfig::new();
+        // The guts of these CryptDEs don't matter. All that matters is that they're Real
+        // instead of Null, so that the key length is correct.
+        bootstrapper_config.cryptde_pair = CryptDEPair::new(
+            Box::new(CryptDEReal::new(
+                masq_lib::blockchains::chains::Chain::PolyMainnet,
+            )),
+            Box::new(CryptDEReal::new(
+                masq_lib::blockchains::chains::Chain::PolyMainnet,
+            )),
+        );
         bootstrapper_config.data_directory = data_directory.to_path_buf();
         match privileged_parse_args(
             self.dirs_wrapper.as_ref(),
@@ -762,7 +794,7 @@ impl ValueRetriever for DataDirectory {
 }
 impl std::default::Default for DataDirectory {
     fn default() -> Self {
-        Self::new(&DirsWrapperReal)
+        Self::new(&DirsWrapperReal::default())
     }
 }
 impl DataDirectory {
@@ -821,10 +853,7 @@ impl ValueRetriever for DnsServers {
                 if ip_addrs.iter().any(|ip_addr| ip_addr.is_loopback()) {
                     return None;
                 }
-                let dns_servers = ip_addrs
-                    .into_iter()
-                    .map(|ip_addr| ip_addr.to_string())
-                    .join(",");
+                let dns_servers = ip_addrs.into_iter().map(to_string).join(",");
                 Some((dns_servers, Default))
             }
             Err(e) => {
@@ -1035,10 +1064,14 @@ impl ValueRetriever for NeighborhoodMode {
     }
 }
 
-fn node_descriptors_to_neighbors(node_descriptors: Vec<NodeDescriptor>) -> String {
+// Note: no interior state from cryptde is used; the important thing is whether it's Real or Null.
+fn node_descriptors_to_neighbors(
+    node_descriptors: Vec<NodeDescriptor>,
+    cryptde: &dyn CryptDE,
+) -> String {
     node_descriptors
         .into_iter()
-        .map(|nd| nd.to_string(main_cryptde()))
+        .map(|nd| nd.to_string(cryptde))
         .collect_vec()
         .join(",")
 }
@@ -1056,13 +1089,19 @@ impl ValueRetriever for Neighbors {
 
     fn computed_default(
         &self,
-        _bootstrapper_config: &BootstrapperConfig,
+        bootstrapper_config: &BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         match db_password_opt {
             Some(pw) => match persistent_config.past_neighbors(pw) {
-                Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
+                Ok(Some(pns)) => Some((
+                    node_descriptors_to_neighbors(
+                        pns,
+                        bootstrapper_config.cryptde_pair.main.as_ref(),
+                    ),
+                    Configured,
+                )),
                 _ => None,
             },
             None => None,
@@ -1075,6 +1114,26 @@ impl ValueRetriever for Neighbors {
             Some(nhm) if &nhm.value == "zero-hop" => false,
             _ => true,
         }
+    }
+}
+
+struct NewPublicKey {}
+impl ValueRetriever for NewPublicKey {
+    fn value_name(&self) -> &'static str {
+        "new-public-key"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        Some(("".to_string(), Blank))
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        false
     }
 }
 
@@ -1155,12 +1214,16 @@ impl ValueRetriever for ScanIntervals {
 
     fn computed_default(
         &self,
-        _bootstrapper_config: &BootstrapperConfig,
+        bootstrapper_config: &BootstrapperConfig,
         pc: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let pc_value = pc.scan_intervals().expectv("scan-intervals");
-        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
+        let chain = bootstrapper_config.blockchain_bridge_config.chain;
+        payment_thresholds_rate_pack_and_scan_intervals(
+            pc_value,
+            crate::sub_lib::accountant::ScanIntervals::compute_default(chain),
+        )
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1219,7 +1282,7 @@ impl ValueRetriever for RealUser {
 }
 impl std::default::Default for RealUser {
     fn default() -> Self {
-        Self::new(&DirsWrapperReal {})
+        Self::new(&DirsWrapperReal::default())
     }
 }
 impl RealUser {
@@ -1274,6 +1337,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(MinHops::new()),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(NewPublicKey {}),
         Box::new(PaymentThresholds {}),
         Box::new(RatePack {}),
         Box::new(ScanIntervals {}),
@@ -1290,8 +1354,10 @@ mod tests {
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
-    use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::database::db_initializer::{
+        DbInitializer, DbInitializerReal, InitializationMode, DATABASE_FILE,
+    };
+    use crate::database::rusqlite_wrappers::ConnectionWrapperReal;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -1302,6 +1368,7 @@ mod tests {
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::cryptde::PublicKey;
+    use crate::sub_lib::cryptde_real::CryptDEReal;
     use masq_lib::shared_schema::Hops;
     use crate::sub_lib::wallet::Wallet;
     use crate::sub_lib::{accountant, neighborhood};
@@ -1310,11 +1377,12 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+        TEST_SCAN_INTERVALS,
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use core::option::Option;
     use masq_lib::blockchains::chains::Chain as Blockchain;
-    use masq_lib::blockchains::chains::Chain::PolyMumbai;
+    use masq_lib::blockchains::chains::Chain::PolyAmoy;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::node_addr::NodeAddr;
@@ -1326,6 +1394,7 @@ mod tests {
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
+    use std::env::current_dir;
     use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::net::IpAddr;
@@ -1393,7 +1462,7 @@ mod tests {
     fn everything_in_defaults_is_properly_constructed() {
         let result = SetupReporterReal::get_default_params();
 
-        assert_eq!(result.is_empty(), false, "{:?}", result); // if we don't have any defaults, let's get rid of all this
+        assert_eq!(result.is_empty(), true, "{:?}", result); // if we have any defaults, let's get back to false statement here and assert right value line below
         result.into_iter().for_each(|(name, value)| {
             assert_eq!(name, value.name);
             assert_eq!(value.status, Default);
@@ -1416,15 +1485,19 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
+        let chain = DEFAULT_CHAIN;
+        let mut init_config = DbInitializationConfig::test_default();
+        if let InitializationMode::CreationAndMigration { external_data } = &mut init_config.mode {
+            external_data.chain = chain
+        } else {
+            panic!("unexpected initialization mode");
+        }
         let data_dir = home_dir.join("data_dir");
-        let chain_specific_data_dir = data_dir.join(DEFAULT_CHAIN.rec().literal_identifier);
-        std::fs::create_dir_all(&chain_specific_data_dir).unwrap();
+        let chain_specific_data_dir = data_dir.join(chain.rec().literal_identifier);
+        create_dir_all(&chain_specific_data_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(
-                &chain_specific_data_dir,
-                DbInitializationConfig::test_default(),
-            )
+            .initialize(&chain_specific_data_dir, init_config)
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1438,7 +1511,7 @@ mod tests {
             .unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"ABCD"),
+            encryption_public_key: PublicKey::new(b"ABCD5678901234567892123456789312"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1446,7 +1519,7 @@ mod tests {
             )),
         };
         let neighbor2 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"EFGH"),
+            encryption_public_key: PublicKey::new(b"EFGH5678901234567892123456789312"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
@@ -1465,7 +1538,7 @@ mod tests {
         .into_iter()
         .map(|(name, value)| UiSetupRequestValue::new(name, value))
         .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -1488,7 +1561,7 @@ mod tests {
             ),
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
             (
@@ -1510,9 +1583,10 @@ mod tests {
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
-                "masq://eth-mainnet:QUJDRA@1.2.3.4:1234,masq://eth-mainnet:RUZHSA@5.6.7.8:5678",
+                "masq://eth-mainnet:QUJDRDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-mainnet:RUZHSDU2Nzg5MDEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678",
                 Configured,
             ),
+            ("new-public-key", "", Blank),
             (
                 "payment-thresholds",
                 &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
@@ -1523,13 +1597,13 @@ mod tests {
             (
                 "real-user",
                 &RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default,
             ),
             (
                 "scan-intervals",
-                &DEFAULT_SCAN_INTERVALS.to_string(),
+                &accountant::ScanIntervals::compute_default(chain).to_string(),
                 Default,
             ),
             ("scans", "on", Default),
@@ -1575,15 +1649,16 @@ mod tests {
             ("mapping-protocol", "PMP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","150|150|150",Set),
             ("scans", "off", Set),
         ]);
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
@@ -1605,9 +1680,10 @@ mod tests {
             ("mapping-protocol", "PMP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","150|150|150",Set),
@@ -1645,9 +1721,10 @@ mod tests {
             ("mapping-protocol", "IGDP"),
             ("min-hops", "2"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("new-public-key", "on"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
-            ("rate-pack","1|3|3|8"),
+            ("rate-pack","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga"),
             ("scan-intervals","140|130|150"),
@@ -1655,7 +1732,7 @@ mod tests {
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -1667,7 +1744,7 @@ mod tests {
             ("blockchain-service-url", "https://example2.com", Set),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
             ("crash-point", "message", Set),
             ("data-directory", chain_specific_data_dir.to_str().unwrap(), Set),
@@ -1680,9 +1757,10 @@ mod tests {
             ("mapping-protocol", "IGDP", Set),
             ("min-hops", "2", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("new-public-key", "on", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
-            ("rate-pack","1|3|3|8",Set),
+            ("rate-pack","100|300|300|800",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga", Set),
             ("scan-intervals","140|130|150",Set),
@@ -1721,16 +1799,17 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
-            ("MASQ_RATE_PACK","1|3|3|8"),
+            ("MASQ_RATE_PACK","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:/home/booga"),
             ("MASQ_SCANS", "off"),
             ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let params = vec![];
         let subject = SetupReporterReal::new(dirs_wrapper);
 
@@ -1740,7 +1819,7 @@ mod tests {
             ("blockchain-service-url", "https://example3.com/", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "error", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -1753,9 +1832,10 @@ mod tests {
             ("mapping-protocol", "PMP", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("new-public-key", "on", Configured),
             ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
-            ("rate-pack","1|3|3|8",Configured),
+            ("rate-pack","100|300|300|800",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga", Configured),
             ("scan-intervals","133|133|111",Configured),
@@ -1776,7 +1856,7 @@ mod tests {
     // misleading. You can't change a database from one chain to another, because in so doing all
     // its wallet addresses, balance amounts, and transaction numbers would be invalidated.
     fn switching_config_files_changes_setup() {
-        let _ = EnvironmentGuard::new();
+        let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "switching_config_files_changes_setup",
@@ -1786,7 +1866,7 @@ mod tests {
             .join("MASQ")
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
+            create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
             config_file
                 .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
@@ -1795,7 +1875,10 @@ mod tests {
                 .write_all(b"clandestine-port = \"7788\"\n")
                 .unwrap();
             config_file.write_all(b"consuming-private-key = \"00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF\"\n").unwrap();
-            config_file.write_all(b"crash-point = \"none\"\n").unwrap();
+            config_file.write_all(b"crash-point = \"Error\"\n").unwrap();
+            config_file
+                .write_all(b"db-password = \"mainnetPassword\"\n")
+                .unwrap();
             config_file
                 .write_all(b"dns-servers = \"5.6.7.8\"\n")
                 .unwrap();
@@ -1809,10 +1892,13 @@ mod tests {
                 .unwrap();
             config_file.write_all(b"min-hops = \"6\"\n").unwrap();
             config_file
-                .write_all(b"neighborhood-mode = \"zero-hop\"\n")
+                .write_all(b"neighborhood-mode = \"standard\"\n")
                 .unwrap();
+            config_file.write_all(b"new-public-key = \"on\"\n").unwrap();
             config_file.write_all(b"scans = \"off\"\n").unwrap();
-            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
+            config_file
+                .write_all(b"rate-pack = \"200|200|200|200\"\n")
+                .unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
                 .unwrap();
@@ -1820,14 +1906,14 @@ mod tests {
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
                 .unwrap()
         }
-        let ropsten_dir = data_root
+        let base_sepolia_dir = data_root
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
-            let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
+            create_dir_all(base_sepolia_dir.clone()).unwrap();
+            let mut config_file = File::create(base_sepolia_dir.join("config.toml")).unwrap();
             config_file
-                .write_all(b"blockchain-service-url = \"https://www.ropsten.com\"\n")
+                .write_all(b"blockchain-service-url = \"https://www.base-sepolia.com\"\n")
                 .unwrap();
             config_file
                 .write_all(b"clandestine-port = \"8877\"\n")
@@ -1836,12 +1922,11 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"none\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"ropstenPassword\"\n")
+                .write_all(b"db-password = \"sepoliaPassword\"\n")
                 .unwrap();
             config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
-            // NOTE: You can't really change consuming-private-key without starting a new database
             config_file
                 .write_all(b"earning-wallet = \"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n")
                 .unwrap();
@@ -1854,9 +1939,12 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
-            config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file
-                .write_all(b"rate-pack = \"55|50|60|61\"\n")
+                .write_all(b"new-public-key = \"off\"\n")
+                .unwrap();
+            config_file.write_all(b"scans = \"on\"\n").unwrap();
+            config_file
+                .write_all(b"rate-pack = \"5500|5000|6000|6100\"\n")
                 .unwrap();
             config_file
                 .write_all(b"payment-thresholds = \"4000|1000|3000|3333|10000|20000\"\n")
@@ -1885,12 +1973,12 @@ mod tests {
         let expected_result = vec![
             (
                 "blockchain-service-url",
-                "https://www.ropsten.com/",
+                "https://www.base-sepolia.com/",
                 Configured,
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "8877", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             (
                 "consuming-private-key",
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
@@ -1899,10 +1987,10 @@ mod tests {
             ("crash-point", "none", Configured),
             (
                 "data-directory",
-                &ropsten_dir.to_string_lossy().to_string(),
+                &base_sepolia_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "ropstenPassword", Configured),
+            ("db-password", "sepoliaPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1916,12 +2004,13 @@ mod tests {
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
+            ("new-public-key", "off", Configured),
             (
                 "payment-thresholds",
                 "4000|1000|3000|3333|10000|20000",
                 Configured,
             ),
-            ("rate-pack", "55|50|60|61", Configured),
+            ("rate-pack", "5500|5000|6000|6100", Configured),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1931,7 +2020,7 @@ mod tests {
                 Default,
             ),
             ("scan-intervals", "555|555|555", Configured),
-            ("scans", "off", Configured),
+            ("scans", "on", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1957,6 +2046,7 @@ mod tests {
         );
         vec![
             ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://booga.com"),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "panic"),
@@ -1968,9 +2058,10 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_MIN_HOPS", "2"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEW_PUBLIC_KEY", "on"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
-            ("MASQ_RATE_PACK","1|3|3|8"),
+            ("MASQ_RATE_PACK","100|300|300|800"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:/home/booga"),
             ("MASQ_SCANS", "off"),
@@ -1994,6 +2085,7 @@ mod tests {
             "min-hops",
             "neighborhood-mode",
             "neighbors",
+            "new-public-key",
             "payment-thresholds",
             "rate-pack",
             #[cfg(not(target_os = "windows"))]
@@ -2006,7 +2098,6 @@ mod tests {
         .collect_vec();
         let existing_setup =
             setup_cluster_from(vec![
-            ("blockchain-service-url", "https://booga.com", Set),
             ("clandestine-port", "4321", Set),
             (
                 "consuming-private-key",
@@ -2030,26 +2121,27 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
+                "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
+            ("new-public-key", "off", Set),
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
-            ("rate-pack", "10|30|13|28", Set),
+            ("rate-pack", "1000|3000|1300|2800", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:/home/agoob", Set),
             ("scan-intervals", "111|111|111", Set),
             ("scans", "off", Set),
             ]);
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "", Required),
+            ("blockchain-service-url", "https://booga.com", Configured),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
-            ("config-file", "config.toml", Default),
+            ("config-file", "", Blank),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
@@ -2066,9 +2158,10 @@ mod tests {
             ("mapping-protocol", "PCP", Configured),
             ("min-hops", "2", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://base-sepolia:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("new-public-key", "on", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
-            ("rate-pack","1|3|3|8",Configured),
+            ("rate-pack","100|300|300|800",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:/home/booga", Configured),
             ("scan-intervals","150|150|155",Configured),
@@ -2127,6 +2220,52 @@ mod tests {
 
         let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
         assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_handles_tilde_in_config_file_and_data_directory_path() {
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_handles_tilde_in_config_file_and_data_directory_path",
+        );
+        let data_dir = base_dir.join("data_dir");
+        std::fs::create_dir_all(base_dir.join("masqhome")).unwrap();
+        let config_file_path = base_dir.join("masqhome").join("config.toml");
+        let mut config_file = File::create(&config_file_path).unwrap();
+        config_file
+            .write_all(b"blockchain-service-url = \"https://www.mainnet.com\"\n")
+            .unwrap();
+        let existing_setup = setup_cluster_from(vec![
+            ("neighborhood-mode", "zero-hop", Set),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![
+            ("data-directory", "~/masqhome"),
+            ("config-file", "~/masqhome/config.toml"),
+        ]
+        .into_iter()
+        .map(|(name, value)| UiSetupRequestValue::new(name, value))
+        .collect_vec();
+
+        let expected_config_file_data = "https://www.mainnet.com";
+        let dirs_wrapper = DirsWrapperMock {
+            data_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&data_dir))),
+            home_dir_result: Some(PathBuf::from(current_dir().unwrap().join(&base_dir))),
+        };
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let actual_config_file_data = result.get("blockchain-service-url").unwrap().value.as_str();
+        assert_eq!(actual_config_file_data, expected_config_file_data);
     }
 
     #[test]
@@ -2296,14 +2435,10 @@ mod tests {
         let current_data_dir = base_dir
             .join("data_dir")
             .join("MASQ")
-            .join(BlockChain::PolyMumbai.rec().literal_identifier); //not a default
+            .join(BlockChain::PolyAmoy.rec().literal_identifier); //not a default
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            (
-                "chain",
-                BlockChain::PolyMumbai.rec().literal_identifier,
-                Set,
-            ),
+            ("chain", BlockChain::PolyAmoy.rec().literal_identifier, Set),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -2342,7 +2477,7 @@ mod tests {
             .get_modified_setup(existing_setup, incoming_setup)
             .unwrap_err();
 
-        let expected_chain = PolyMumbai.rec().literal_identifier;
+        let expected_chain = PolyAmoy.rec().literal_identifier;
         let actual_chain = &resulting_setup_cluster.get("chain").unwrap().value;
         assert_eq!(actual_chain, expected_chain);
         let actual_data_directory =
@@ -2352,6 +2487,7 @@ mod tests {
 
     #[test]
     fn get_modified_setup_does_not_support_database_migration() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "get_modified_setup_does_not_support_database_migration",
@@ -2362,6 +2498,7 @@ mod tests {
         assert_eq!(schema_version_before, "0");
         let existing_setup = setup_cluster_from(vec![
             ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            ("blockchain-service-url", "https://booga.com", Set),
             (
                 "data-directory",
                 &data_dir.to_string_lossy().to_string(),
@@ -2370,7 +2507,7 @@ mod tests {
             (
                 "real-user",
                 &crate::bootstrapper::RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default,
             ),
@@ -2379,7 +2516,7 @@ mod tests {
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let _ = subject
@@ -2407,7 +2544,7 @@ mod tests {
             ),
         ]);
         let incoming_setup = vec![UiSetupRequestValue::clear("neighbors")];
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2461,6 +2598,7 @@ mod tests {
 
     #[test]
     fn run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null",
@@ -2519,7 +2657,7 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2550,7 +2688,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2581,7 +2719,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2608,7 +2746,7 @@ mod tests {
         ]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
@@ -2631,12 +2769,13 @@ mod tests {
         let setup = setup_cluster_from(vec![]);
 
         let (real_user_opt, data_directory_opt, chain) =
-            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal::default(), &setup).unwrap();
 
         assert_eq!(
             real_user_opt,
             Some(
-                crate::bootstrapper::RealUser::new(None, None, None).populate(&DirsWrapperReal {})
+                crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal::default())
             )
         );
         assert_eq!(data_directory_opt, None);
@@ -2650,7 +2789,7 @@ mod tests {
             "setup_reporter",
             "blanking_a_parameter_with_a_default_produces_that_default",
         );
-        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject
@@ -2661,6 +2800,7 @@ mod tests {
                         "data-directory",
                         &home_dir.to_string_lossy().to_string(),
                     ),
+                    UiSetupRequestValue::new("blockchain-service-url", "https://booga.com"),
                     UiSetupRequestValue::new("ip", "1.2.3.4"),
                     UiSetupRequestValue::clear("chain"),
                 ],
@@ -2671,6 +2811,56 @@ mod tests {
         assert_eq!(
             actual_chain,
             &UiSetupResponseValue::new("chain", DEFAULT_CHAIN.rec().literal_identifier, Default)
+        );
+    }
+
+    #[test]
+    fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
+        let _guard = EnvironmentGuard::new();
+        let existing_setup = setup_cluster_from(vec![
+            ("real-user", "1111:1111:/home/booga", Default),
+            ("blockchain-service-url", "https://booga.com", Set),
+        ]);
+        let masqhome = Path::new("/home/booga/masqhome");
+        let incoming_setup = vec![UiSetupRequestValue::new(
+            "data-directory",
+            &masqhome.to_str().unwrap(),
+        )];
+        let dirs_wrapper = Box::new(DirsWrapperReal::default());
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
+
+        let expected = masqhome.join("base-mainnet");
+        assert_eq!(
+            result.unwrap().get("data-directory").unwrap().value,
+            expected.to_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn calculate_setup_with_chain_specific_dir_on_default_directory() {
+        let _guard = EnvironmentGuard::new();
+        let existing_setup = setup_cluster_from(vec![
+            ("real-user", "1111:1111:/home/booga", Default),
+            ("blockchain-service-url", "https://booga.com", Set),
+        ]);
+        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-amoy")];
+        let home_directory = Path::new("/home/booga");
+        let data_directory = home_directory.join("data");
+        let expected = data_directory.join("MASQ").join("polygon-amoy");
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(data_directory))
+                .home_dir_result(Some(home_directory.to_path_buf())),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject.get_modified_setup(existing_setup, incoming_setup);
+
+        assert_eq!(
+            result.unwrap().get("data-directory").unwrap().value,
+            expected.to_str().unwrap()
         );
     }
 
@@ -2706,6 +2896,7 @@ mod tests {
 
     #[test]
     fn config_file_not_specified_and_nonexistent() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_not_specified_and_nonexistent",
@@ -2722,16 +2913,13 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
             .0;
 
-        assert_eq!(
-            result.get("config-file").unwrap().value,
-            "config.toml".to_string()
-        );
+        assert_eq!(result.get("config-file").unwrap().value, "".to_string());
         assert_eq!(
             result.get("gas-price").unwrap().value,
             GasPrice {}
@@ -2747,6 +2935,7 @@ mod tests {
 
     #[test]
     fn config_file_not_specified_but_exists() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_not_specified_but_exists",
@@ -2771,7 +2960,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
 
-        let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
+        let (result, _) = SetupReporterReal::new(Box::new(DirsWrapperReal::default()))
             .calculate_configured_setup(&setup, &*data_directory);
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2779,6 +2968,7 @@ mod tests {
 
     #[test]
     fn config_file_has_relative_directory_that_exists_in_data_directory() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_relative_directory_that_exists_in_data_directory",
@@ -2792,7 +2982,7 @@ mod tests {
         }
         let setup = vec![
             //no config-file setting
-            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
+            UiSetupResponseValue::new("chain", "polygon-amoy", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new("config-file", "booga/special.toml", Set),
             UiSetupResponseValue::new(
@@ -2804,7 +2994,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
             .0;
@@ -2813,6 +3003,7 @@ mod tests {
 
     #[test]
     fn config_file_has_relative_directory_that_does_not_exist_in_data_directory() {
+        let _guard = EnvironmentGuard::new();
         let data_directory = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_relative_directory_that_does_not_exist_in_data_directory",
@@ -2830,7 +3021,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
@@ -2843,6 +3034,7 @@ mod tests {
 
     #[test]
     fn config_file_has_absolute_path_to_file_that_exists() {
+        let _guard = EnvironmentGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_exists",
@@ -2868,7 +3060,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
@@ -2877,13 +3069,14 @@ mod tests {
 
     #[test]
     fn config_file_has_absolute_path_to_file_that_does_not_exist() {
+        let _guard = EnvironmentGuard::new();
         let config_file_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "config_file_has_absolute_path_to_file_that_does_not_exist",
         );
         let config_file_dir = config_file_dir.canonicalize().unwrap();
         let config_file_path = config_file_dir.join("nonexistent.toml");
-        let wrapper = DirsWrapperReal {};
+        let wrapper = DirsWrapperReal::default();
         let data_directory = wrapper
             .data_dir()
             .unwrap()
@@ -2901,7 +3094,7 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal::default()));
 
         let result = subject
             .calculate_configured_setup(&setup, &data_directory)
@@ -2954,11 +3147,14 @@ mod tests {
 
     #[test]
     fn data_directory_computed_default() {
-        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
-        let expected =
-            data_directory_from_context(&DirsWrapperReal {}, &real_user, Blockchain::EthMainnet)
-                .to_string_lossy()
-                .to_string();
+        let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal::default());
+        let expected = data_directory_from_context(
+            &DirsWrapperReal::default(),
+            &real_user,
+            Blockchain::EthMainnet,
+        )
+        .to_string_lossy()
+        .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
         config.blockchain_bridge_config.chain = Blockchain::EthMainnet;
@@ -3246,17 +3442,18 @@ mod tests {
 
     #[test]
     fn neighbors_computed_default_persistent_config_present_password_present_values_present() {
+        let cryptde = CryptDEReal::new(masq_lib::blockchains::chains::Chain::Dev);
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    &cryptde as &dyn CryptDE,
                     "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
-                    main_cryptde(),
+                    &cryptde as &dyn CryptDE,
                     "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
                 ))
                 .unwrap(),
@@ -3337,6 +3534,19 @@ mod tests {
         assert_eq!(result, None);
     }
 
+    #[test]
+    fn new_public_key_computed_default() {
+        let subject = NewPublicKey {};
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &PersistentConfigurationMock::new(),
+            &None,
+        );
+
+        assert_eq!(result, Some(("".to_string(), Blank)));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn real_user_computed_default() {
@@ -3352,7 +3562,7 @@ mod tests {
             result,
             Some((
                 RealUser::new(None, None, None)
-                    .populate(&DirsWrapperReal {})
+                    .populate(&DirsWrapperReal::default())
                     .to_string(),
                 Default
             ))
@@ -3391,6 +3601,7 @@ mod tests {
     fn rate_pack_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &RatePack {},
+            None,
             DEFAULT_RATE_PACK.to_string(),
         )
     }
@@ -3470,19 +3681,26 @@ mod tests {
 
     #[test]
     fn scan_intervals_computed_default_when_persistent_config_like_default() {
+        let chain = DEFAULT_CHAIN;
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.blockchain_bridge_config.chain = chain;
         assert_computed_default_when_persistent_config_like_default(
             &ScanIntervals {},
-            *DEFAULT_SCAN_INTERVALS,
+            Some(bootstrapper_config),
+            accountant::ScanIntervals::compute_default(chain),
         )
     }
 
     #[test]
     fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
-        let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
-        scan_intervals.pending_payable_scan_interval = scan_intervals
-            .pending_payable_scan_interval
+        let mut scan_intervals = *TEST_SCAN_INTERVALS;
+        scan_intervals.payable_scan_interval = scan_intervals
+            .payable_scan_interval
             .add(Duration::from_secs(15));
         scan_intervals.pending_payable_scan_interval = scan_intervals
+            .pending_payable_scan_interval
+            .add(Duration::from_secs(20));
+        scan_intervals.receivable_scan_interval = scan_intervals
             .receivable_scan_interval
             .sub(Duration::from_secs(33));
 
@@ -3499,6 +3717,7 @@ mod tests {
     fn payment_thresholds_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &PaymentThresholds {},
+            None,
             DEFAULT_PAYMENT_THRESHOLDS.to_string(),
         )
     }
@@ -3521,12 +3740,13 @@ mod tests {
 
     fn assert_computed_default_when_persistent_config_like_default<T>(
         subject: &dyn ValueRetriever,
+        bootstrapper_config_opt: Option<BootstrapperConfig>,
         default: T,
     ) where
         T: Display + PartialEq,
     {
-        let mut bootstrapper_config = BootstrapperConfig::new();
-        //the rate_pack within the mode setting does not determine the result, so I just set a nonsense
+        let mut bootstrapper_config = bootstrapper_config_opt.unwrap_or(BootstrapperConfig::new());
+        //the rate_pack within the mode setting does not affect the result, so I set nonsense
         bootstrapper_config.neighborhood_config.mode =
             NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack(0));
         let persistent_config =
@@ -3678,6 +3898,7 @@ mod tests {
         assert_eq!(MinHops::new().is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
+        assert_eq!(NewPublicKey {}.is_required(&params), false);
         assert_eq!(
             setup_reporter::PaymentThresholds {}.is_required(&params),
             true
@@ -3711,6 +3932,7 @@ mod tests {
         assert_eq!(MinHops::new().value_name(), "min-hops");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
+        assert_eq!(NewPublicKey {}.value_name(), "new-public-key");
         assert_eq!(
             setup_reporter::PaymentThresholds {}.value_name(),
             "payment-thresholds"
@@ -3722,51 +3944,5 @@ mod tests {
             "real-user"
         );
         assert_eq!(Scans {}.value_name(), "scans");
-    }
-
-    #[test]
-    fn calculate_setup_with_chain_specific_dir_on_user_specified_directory() {
-        let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let masqhome = Path::new("/home/booga/masqhome");
-        let incoming_setup = vec![UiSetupRequestValue::new(
-            "data-directory",
-            &masqhome.to_str().unwrap(),
-        )];
-        let dirs_wrapper = Box::new(DirsWrapperReal);
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject.get_modified_setup(existing_setup, incoming_setup);
-
-        let expected = masqhome.join("polygon-mainnet");
-        assert_eq!(
-            result.unwrap().get("data-directory").unwrap().value,
-            expected.to_str().unwrap()
-        );
-    }
-
-    #[test]
-    fn calculate_setup_with_chain_specific_dir_on_default_directory() {
-        let _guard = EnvironmentGuard::new();
-        let existing_setup =
-            setup_cluster_from(vec![("real-user", "1111:1111:/home/booga", Default)]);
-        let incoming_setup = vec![UiSetupRequestValue::new("chain", "polygon-mumbai")];
-        let home_directory = Path::new("/home/booga");
-        let data_directory = home_directory.join("data");
-        let expected = data_directory.join("MASQ").join("polygon-mumbai");
-        let dirs_wrapper = Box::new(
-            DirsWrapperMock::new()
-                .data_dir_result(Some(data_directory))
-                .home_dir_result(Some(home_directory.to_path_buf())),
-        );
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject.get_modified_setup(existing_setup, incoming_setup);
-
-        assert_eq!(
-            result.unwrap().get("data-directory").unwrap().value,
-            expected.to_str().unwrap()
-        );
     }
 }

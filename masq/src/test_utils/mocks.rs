@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::clap_before_entrance::InitialArgsParser;
-use crate::command_context::{CommandContext, ContextError};
+use crate::command_context::{CommandContext, ContextError, DEFAULT_TRANSACT_TIMEOUT_MILLIS};
 use crate::command_context_factory::CommandContextFactory;
 use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandExecutionHelper, CommandExecutionHelperFactory};
@@ -30,12 +30,25 @@ use masq_lib::{
 };
 use soketto::connection::Error;
 use std::any::Any;
+use crate::communications::broadcast_handler::{BroadcastHandle, StreamFactory};
+use crate::non_interactive_clap::{NIClapFactory, NonInteractiveClap};
+use crate::terminal::line_reader::TerminalEvent;
+use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
+use crate::terminal::terminal_interface::TerminalWrapper;
+use crossbeam_channel::{bounded, unbounded, Receiver, Sender, TryRecvError};
+use linefeed::memory::MemoryTerminal;
+use linefeed::{Interface, ReadResult, Signal};
+use masq_lib::command::StdStreams;
+use masq_lib::constants::DEFAULT_UI_PORT;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::io::AsyncWrite;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use tokio::task::JoinError;
+use test_utilities::byte_array_reader_writer::{ByteArrayWriter, ByteArrayWriterInner};
+
+pub const TRANSACT_TIMEOUT_MILLIS_FOR_TESTS: u64 = DEFAULT_TRANSACT_TIMEOUT_MILLIS;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -345,7 +358,7 @@ impl Command for MockCommand {
             stderr.writeln(&stderr_output).await
         };
         let request = self.request_opt.expect("request was not provided");
-        match context.transact(request, 1000).await {
+        match context.transact(request, TRANSACT_TIMEOUT_MILLIS_FOR_TESTS).await {
             Ok(_) => self.execute_results.lock().unwrap().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }

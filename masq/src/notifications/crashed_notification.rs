@@ -59,6 +59,7 @@ impl CrashNotifier {
 mod tests {
     use super::*;
     use crate::test_utils::mocks::make_terminal_writer;
+    use crate::test_utils::mocks::TerminalPassiveMock;
     use masq_lib::utils::running_test;
 
     #[tokio::test]

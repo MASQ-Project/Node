@@ -128,7 +128,13 @@ impl Wallet {
             WalletKind::Address(address) => H160(address.0),
             WalletKind::PublicKey(public) => H160(*public.address()),
             WalletKind::SecretKey(key_provider) => key_provider.address(),
-            WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
+            WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"), // TODO: If we can get rid of it, it'll be awesome!
+        }
+    }
+
+    pub fn null() -> Self {
+        Wallet {
+            kind: WalletKind::Uninitialized,
         }
     }
 
@@ -509,6 +515,18 @@ mod tests {
         let result = wallet.string_address_from_keypair();
 
         assert_eq!(result, "0x28330c4b886fc83bd6e3409a9eae776c19403c2e")
+    }
+
+    #[test]
+    fn null_wallet() {
+        let result = Wallet::null();
+
+        assert_eq!(
+            result,
+            Wallet {
+                kind: WalletKind::Uninitialized
+            }
+        )
     }
 
     #[test]

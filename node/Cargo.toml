@@ -1,13 +1,13 @@
 [package]
 name = "node"
-version = "0.7.4"
+version = "0.9.1"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 description = "MASQ Node is the foundation of MASQ Network, an open-source network that allows anyone to allocate spare computing resources to make the internet a free and fair place for the entire world."
 edition = "2021"
 
 [workspace]
-members = ["../multinode_integration_tests", "../masq_lib", "../masq"]
+members = ["../multinode_integration_tests", "../masq_lib", "../masq", "../ip_country", "../test_utilities"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -49,6 +49,8 @@ hickory-resolver = "0.24.1"
 http = "1.1.0"
 indoc = "2.0.5"
 itertools = "0.13.0"
+futures = "0.1.31"
+ip_country = { path = "../ip_country"}
 lazy_static = "1.4.0"
 libc = "0.2.155"
 libsecp256k1 = "0.7.1"
@@ -74,7 +76,7 @@ sodiumoxide = "0.2.7"
 soketto = { workspace = true }
 sysinfo = "0.30.12"
 thousands = "0.2.0"
-time = {version = "0.3.36", features = [ "macros" ]}
+time = {version = "0.3.36", features = [ "macros", "local-offset", "parsing" ]}
 tiny-bip39 = "1.0.0"
 tiny-hderive = { workspace = true }
 tokio = { workspace = true }
@@ -85,8 +87,10 @@ tungstenite = "0.23.0"
 unindent = "0.2.3"
 url = { workspace = true }
 variant_count = "1.1.0"
-web3 = { workspace = true }
+web3 = { workspace = true, default-features = false, features = ["http", "tls"] }
 actix-rt = "2.11.0"
+websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
+uuid = "0.7.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.6.0"
@@ -108,6 +112,8 @@ simple-server = "0.4.0"
 serial_test_derive = "3.1.1"
 serial_test = "3.1.1"
 hickory-proto = "0.24.1"
+test_utilities = { path = "../test_utilities"}
+trust-dns-proto = "0.8.0"
 
 [[bin]]
 name = "MASQNode"

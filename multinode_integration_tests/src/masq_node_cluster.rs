@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::time::Duration;
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -306,6 +307,42 @@ impl MASQNodeCluster {
     }
 
     fn create_network() -> Result<(), String> {
+        let mut errors = vec![];
+        let mut retries_remaining = 2;
+        let interval = Duration::from_millis(250);
+        while retries_remaining >= 0 {
+            match MASQNodeCluster::create_network_attempt() {
+                Ok(s) => return Ok(s),
+                Err(err_msg) => {
+                    retries_remaining -= 1;
+                    errors.push(err_msg);
+                    std::thread::sleep(interval);
+                }
+            }
+        }
+        Err(format!(
+            "Errors trying to create Docker network:\n  {}\n",
+            errors.join("\n  ")
+        ))
+    }
+
+    fn create_network_attempt() -> Result<(), String> {
+        let mut command = Command::new(
+            "docker",
+            Command::strings(vec!["network", "rm", "integration_net"]),
+        );
+        match command.stdout_or_stderr() {
+            Ok(_) => println!("Removed existing integration_net network"),
+            Err(msg) if msg.contains("network integration_net not found") => {
+                println!("No existing integration_net network to remove: cool!")
+            }
+            Err(msg) => {
+                return Err(format!(
+                    "Error removing existing integration_net network: {}",
+                    msg
+                ))
+            }
+        }
         let mut command = Command::new(
             "docker",
             Command::strings(vec![

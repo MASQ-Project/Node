@@ -24,7 +24,7 @@ fn http_through_node_integration() {
     stream
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
-    let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
+    let request = "GET /index.html HTTP/1.1\r\nHost: www.testingmcafeesites.com\r\n\r\n".as_bytes();
 
     stream.write(request.clone()).unwrap();
     let buf = read_until_timeout(&mut stream);
@@ -32,7 +32,7 @@ fn http_through_node_integration() {
     let response = String::from_utf8(buf).expect("Response is not UTF-8");
     assert_eq!(&response[9..15], &"200 OK"[..]);
     assert_eq!(
-        response.contains("<h1>Example Domain</h1>"),
+        response.contains("<title>URL for testing.</title>"),
         true,
         "{}",
         response

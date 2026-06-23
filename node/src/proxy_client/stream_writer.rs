@@ -95,16 +95,20 @@ impl StreamWriter {
                 Some(packet) => {
                     debug!(
                         self.logger,
-                        "Writing {} bytes over existing stream",
-                        packet.data.len()
+                        "Writing {} bytes from packet {}{} over existing stream",
+                        packet.data.len(),
+                        packet.sequence_number,
+                        if packet.last_data { " (last data)" } else { "" }
                     );
                     match self.stream.write(&packet.data).await {
                         Err(e) => {
                             if indicates_dead_stream(e.kind()) {
                                 error!(
                                     self.logger,
-                                    "Error writing {} bytes: {}",
+                                    "Error writing {} bytes from packet {}{}: {}",
                                     packet.data.len(),
+                                    packet.sequence_number,
+                                    if packet.last_data { " (last data)" } else { "" },
                                     e
                                 );
                                 return Err(e);
@@ -156,7 +160,6 @@ impl StreamWriter {
 mod tests {
     use super::*;
     use crate::test_utils::channel_wrapper_mocks::ReceiverWrapperMock;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -164,6 +167,13 @@ mod tests {
     use std::io::ErrorKind;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    fn thread_id_string() -> String {
+        let thread_id_str = format!("{:?}", thread::current().id());
+        let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
+        format!("Thd{}", thread_id)
+    }
 
     #[tokio::test]
     async fn stream_writer_writes_packets_in_sequenced_order() {
@@ -171,7 +181,7 @@ mod tests {
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
         let packet_b: Vec<u8> = vec![2, 4, 10, 8, 6, 3];
         let packet_c: Vec<u8> = vec![1, 0, 1, 2];
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(packet_c.clone(), 2, false)))
             .recv_result(Some(SequencedPacket::new(packet_b.clone(), 1, false)))
@@ -207,44 +217,53 @@ mod tests {
         assert_eq!(write_params[3], empty_packet);
 
         let tlh = TestLogHandler::new();
+        let thread_id = thread_id_string();
         tlh.assert_logs_contain_in_order(vec![
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes over existing stream",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes from packet 0 over existing stream",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 5/5 bytes of clear data",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 5/5 bytes of clear data",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 6 bytes over existing stream",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 6 bytes from packet 1 over existing stream",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 6/6 bytes of clear data",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 6/6 bytes of clear data",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 4 bytes over existing stream",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 4 bytes from packet 2 over existing stream",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 4/4 bytes of clear data",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 4/4 bytes of clear data",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 0 bytes over existing stream",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 0 bytes from packet 3 over existing stream",
+                thread_id,
                 stream_key
             )
             .as_str(),
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 0/0 bytes of clear data",
+                "{}: DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Wrote 0/0 bytes of clear data",
+                thread_id,
                 stream_key
             )
             .as_str(),
@@ -255,7 +274,7 @@ mod tests {
     async fn stream_writer_logs_error_and_continues_when_it_gets_a_non_dead_stream_error() {
         init_test_logging();
         let text_data = b"These are the times";
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(text_data.to_vec(), 0, true)))
             .recv_result(None);
@@ -280,7 +299,7 @@ mod tests {
         assert_eq!(write_params_arc.lock().unwrap().len(), 2);
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec!(
-            format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Writing 19 bytes over existing stream", stream_key).as_str (),
+            format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Writing 19 bytes from packet 0 over existing stream", stream_key).as_str (),
             format!("WARN: StreamWriter for {:?}/1.3.3.4:5678: Continuing after write error: other error", stream_key).as_str (),
             format!("DEBUG: StreamWriter for {:?}/1.3.3.4:5678: Wrote 19/19 bytes of clear data", stream_key).as_str ()));
     }
@@ -288,7 +307,7 @@ mod tests {
     #[tokio::test]
     async fn stream_writer_attempts_to_write_until_successful_before_reading_new_messages_from_channel(
     ) {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let first_data = &b"These are the times"[..];
         let second_data = &b"These are the other times"[..];
 
@@ -326,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn stream_writer_exits_if_channel_is_closed() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx_to_write =
             set_up_standard_results(ReceiverWrapperMock::new(), &b"These are the times".to_vec());
         let writer = WriteHalfWrapperMock::new()
@@ -349,7 +368,7 @@ mod tests {
     #[tokio::test]
     async fn dead_stream_error_generates_log_and_returns_err() {
         init_test_logging();
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx_to_write = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(
                 b"These are the times".to_vec(),
@@ -371,7 +390,7 @@ mod tests {
         assert_eq!(result.err().unwrap().kind(), ErrorKind::BrokenPipe);
         TestLogHandler::new().exists_log_containing(
             format!(
-                "ERROR: StreamWriter for {:?}/2.3.4.5:80: Error writing 19 bytes: broken pipe",
+                "ERROR: StreamWriter for {:?}/2.3.4.5:80: Error writing 19 bytes from packet 0: broken pipe",
                 stream_key
             )
             .as_str(),
@@ -382,7 +401,7 @@ mod tests {
     // things at this level.
     // #[test]
     // fn stream_writer_reattempts_writing_packets_that_were_prevented_by_not_ready() {
-    //     let stream_key = make_meaningless_stream_key();
+    //     let stream_key = StreamKey::make_meaningless_stream_key();
     //     let mut rx = Box::new(ReceiverWrapperMock::new());
     //     rx.poll_results = vec![
     //         Poll::Ready(Ok(Some(SequencedPacket {
@@ -415,7 +434,7 @@ mod tests {
 
     #[tokio::test]
     async fn stream_writer_resubmits_partial_packet_when_written_len_is_less_than_packet_len() {
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx = ReceiverWrapperMock::new()
             .recv_result(Some(SequencedPacket::new(b"worlds".to_vec(), 0, true)))
             .recv_result(None);
@@ -446,7 +465,7 @@ mod tests {
     async fn stream_writer_shuts_down_stream_after_writing_last_data() {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
         let rx_to_write = set_up_standard_results(ReceiverWrapperMock::new(), &packet_a);
         let write_params_arc = Arc::new(Mutex::new(vec![]));
         let shutdown_params_arc = Arc::new(Mutex::new(vec![]));
@@ -471,7 +490,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec![
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes over existing stream",
+                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes from packet 0 (last data) over existing stream",
                 stream_key
             )
             .as_str(),
@@ -541,7 +560,7 @@ mod tests {
         init_test_logging();
         let packet_a: Vec<u8> = vec![1, 3, 5, 9, 7];
 
-        let stream_key = make_meaningless_stream_key();
+        let stream_key = StreamKey::make_meaningless_stream_key();
 
         let rx_to_write = set_up_standard_results(ReceiverWrapperMock::new(), &packet_a);
 
@@ -569,7 +588,7 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.assert_logs_contain_in_order(vec![
             format!(
-                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes over existing stream",
+                "DEBUG: StreamWriter for {:?}/2.2.3.4:5678: Writing 5 bytes from packet 0 (last data) over existing stream",
                 stream_key
             )
             .as_str(),

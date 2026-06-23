@@ -8,8 +8,10 @@ use crate::commands::configuration_command::ConfigurationCommand;
 use crate::commands::connection_status_command::ConnectionStatusCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
+use crate::commands::exit_location_command::SetExitLocationCommand;
 use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
+use crate::commands::neighborhood_graph_command::GetNeighborhoodGraphCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::scan_command::ScanCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
@@ -64,11 +66,19 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
+            "exit-location" => match SetExitLocationCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             "financials" => match FinancialsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "neighborhood-graph" => match GetNeighborhoodGraphCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
@@ -118,6 +128,7 @@ impl CommandFactoryReal {
 mod tests {
     use super::*;
     use crate::command_factory::CommandFactoryError::UnrecognizedSubcommand;
+    use masq_lib::messages::CountryGroups;
 
     #[test]
     fn complains_about_unrecognized_subcommand() {
@@ -270,6 +281,49 @@ mod tests {
                 name: "gas-price".to_string(),
                 value: "20".to_string(),
             }
+        );
+    }
+
+    #[test]
+    fn factory_produces_exit_location() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject
+            .make(&[
+                "exit-location".to_string(),
+                "--country-codes".to_string(),
+                "AS".to_string(),
+            ])
+            .unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<SetExitLocationCommand>()
+                .unwrap(),
+            &SetExitLocationCommand {
+                exit_locations: vec![CountryGroups {
+                    country_codes: vec!["AS".to_string()],
+                    priority: 1
+                }],
+                fallback_routing: false,
+                show_countries: false,
+            }
+        );
+    }
+
+    #[test]
+    fn factory_produces_neighborhood_graph() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["neighborhood-graph".to_string()]).unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<GetNeighborhoodGraphCommand>()
+                .unwrap(),
+            &GetNeighborhoodGraphCommand {}
         );
     }
 

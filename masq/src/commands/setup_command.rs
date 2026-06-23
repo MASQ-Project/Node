@@ -8,16 +8,14 @@ use async_trait::async_trait;
 use clap::Command as ClapCommand;
 use futures::future::join_all;
 use itertools::Itertools;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::SETUP_ERROR;
-use masq_lib::implement_as_any;
 use masq_lib::messages::{
     UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
     UiSetupResponseValue, UiSetupResponseValueStatus,
 };
 use masq_lib::shared_schema::{data_directory_arg, shared_app};
 use masq_lib::utils::{get_argument_value_as_string, index_of_from, DATA_DIRECTORY_DAEMON_HELP};
-#[cfg(test)]
-use std::any::Any;
 use std::fmt::Debug;
 use std::iter::Iterator;
 
@@ -71,7 +69,7 @@ impl Command for SetupCommand {
             Err(e) => Err(e),
         }
     }
-    implement_as_any!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl SetupCommand {
@@ -251,7 +249,7 @@ mod tests {
                 "zero-hop".to_string(),
                 "--log-level".to_string(),
                 "--chain".to_string(),
-                "polygon-mainnet".to_string(),
+                DEFAULT_CHAIN.rec().literal_identifier.to_string(),
                 "--scan-intervals".to_string(),
                 "123|111|228".to_string(),
                 "--scans".to_string(),
@@ -424,10 +422,10 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
                 status_data_dir: UiSetupResponseValueStatus::Default,
             },
             SetupCommandData {
-                chain_str: Some("polygon-mumbai".to_owned()),
+                chain_str: Some("polygon-amoy".to_owned()),
                 data_directory: None,
-                chain_name_expected: Some("polygon-mumbai"),
-                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-mumbai"),
+                chain_name_expected: Some("polygon-amoy"),
+                data_directory_expected: Some("/home/cooga/.local/MASQ/polygon-amoy"),
                 note_expected: true,
                 status_chain: UiSetupResponseValueStatus::Set,
                 status_data_dir: UiSetupResponseValueStatus::Default,
@@ -442,10 +440,10 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
                 status_data_dir: UiSetupResponseValueStatus::Set,
             },
             SetupCommandData {
-                chain_str: Some("polygon-mumbai".to_owned()),
-                data_directory: Some("booga/polygon-mumbai".to_owned()),
-                chain_name_expected: Some("polygon-mumbai"),
-                data_directory_expected: Some("booga/polygon-mumbai/polygon-mumbai"),
+                chain_str: Some("polygon-amoy".to_owned()),
+                data_directory: Some("booga/polygon-amoy".to_owned()),
+                chain_name_expected: Some("polygon-amoy"),
+                data_directory_expected: Some("booga/polygon-amoy/polygon-amoy"),
                 note_expected: true,
                 status_chain: UiSetupResponseValueStatus::Set,
                 status_data_dir: UiSetupResponseValueStatus::Set,

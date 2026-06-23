@@ -1,6 +1,6 @@
 [package]
 name = "dns_utility"
-version = "0.7.3"
+version = "0.9.1"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 description = "Command-line utility to turn DNS subversion on and off"

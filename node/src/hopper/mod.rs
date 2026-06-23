@@ -26,7 +26,7 @@ use routing_service::RoutingService;
 pub const CRASH_KEY: &str = "HOPPER";
 
 pub struct Hopper {
-    cryptdes: CryptDEPair,
+    cryptde_pair: CryptDEPair,
     consuming_service: Option<ConsumingService>,
     routing_service: Option<RoutingService>,
     per_routing_service: u64,
@@ -52,12 +52,12 @@ impl Handler<BindMessage> for Hopper {
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
-            self.cryptdes.main,
+            self.cryptde_pair.main.dup(),
             msg.peer_actors.dispatcher.from_dispatcher_client.clone(),
             msg.peer_actors.hopper.from_dispatcher.clone(),
         ));
         self.routing_service = Some(RoutingService::new(
-            self.cryptdes,
+            self.cryptde_pair.clone(),
             RoutingServiceSubs {
                 proxy_client_subs_opt: msg.peer_actors.proxy_client_opt,
                 proxy_server_subs: msg.peer_actors.proxy_server,
@@ -125,7 +125,7 @@ impl Handler<NodeFromUiMessage> for Hopper {
 impl Hopper {
     pub fn new(config: HopperConfig) -> Hopper {
         Hopper {
-            cryptdes: config.cryptdes,
+            cryptde_pair: config.cryptde_pair,
             consuming_service: None,
             routing_service: None,
             crashable: config.crashable,
@@ -157,16 +157,22 @@ mod tests {
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::route::Route;
     use crate::sub_lib::route::RouteSegment;
+    use crate::sub_lib::stream_key::StreamKey;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::{
-        alias_cryptde, main_cryptde, make_cryptde_pair, make_meaningless_message_type,
-        make_paying_wallet, route_to_proxy_client,
+        make_meaningless_message_type, make_paying_wallet, route_to_proxy_client,
     };
     use actix::Actor;
+    use actix::System;
+    use lazy_static::lazy_static;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;
+
+    lazy_static! {
+        static ref CRYPTDE_PAIR: CryptDEPair = CryptDEPair::null();
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -176,11 +182,12 @@ mod tests {
     #[actix::test]
     #[should_panic(expected = "Mailbox has closed")]
     async fn panics_if_routing_service_is_unbound() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
-        let peer_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde);
-        let serialized_payload = serde_cbor::ser::to_vec(&make_meaningless_message_type()).unwrap();
+        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
+        let client_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let route = route_to_proxy_client(&main_cryptde.public_key(), main_cryptde, false);
+        let stream_key = StreamKey::make_meaningless_stream_key();
+        let serialized_payload =
+            serde_cbor::ser::to_vec(&make_meaningless_message_type(stream_key)).unwrap();
         let data = main_cryptde
             .encode(
                 &main_cryptde.public_key(),
@@ -196,18 +203,15 @@ mod tests {
 
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
-            peer_addr,
-            reception_port: None,
+            client_addr,
+            reception_port_opt: None,
             last_data: false,
             is_clandestine: false,
-            sequence_number: None,
+            sequence_number_opt: None,
             data: encrypted_package,
         };
         let subject = Hopper::new(HopperConfig {
-            cryptdes: CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
-            },
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -221,8 +225,7 @@ mod tests {
     #[actix::test]
     #[should_panic(expected = "Mailbox has closed")]
     async fn panics_if_consuming_service_is_unbound() {
-        let main_cryptde = main_cryptde();
-        let alias_cryptde = alias_cryptde();
+        let main_cryptde = CRYPTDE_PAIR.main.as_ref();
         let paying_wallet = make_paying_wallet(b"wallet");
         let next_key = PublicKey::new(&[65, 65, 65]);
         let route = Route::one_way(
@@ -238,15 +241,12 @@ mod tests {
         let incipient_package = IncipientCoresPackage::new(
             main_cryptde,
             route,
-            make_meaningless_message_type(),
+            make_meaningless_message_type(StreamKey::make_meaningless_stream_key()),
             &main_cryptde.public_key(),
         )
         .unwrap();
         let subject = Hopper::new(HopperConfig {
-            cryptdes: CryptDEPair {
-                main: main_cryptde,
-                alias: alias_cryptde,
-            },
+            cryptde_pair: CRYPTDE_PAIR.clone(),
             per_routing_service: 100,
             per_routing_byte: 200,
             is_decentralized: false,
@@ -261,7 +261,7 @@ mod tests {
     fn hopper_can_be_crashed_properly_but_not_improperly() {
         let hopper_producer = || {
             Hopper::new(HopperConfig {
-                cryptdes: make_cryptde_pair(),
+                cryptde_pair: CRYPTDE_PAIR.clone(),
                 per_routing_service: 100,
                 per_routing_byte: 200,
                 is_decentralized: false,

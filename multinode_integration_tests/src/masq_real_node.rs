@@ -12,7 +12,7 @@ use log::Level;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
-use masq_lib::utils::localhost;
+use masq_lib::utils::{localhost, to_string};
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32EncryptionKeyProvider;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS;
@@ -39,7 +39,7 @@ use std::thread;
 use std::time::Duration;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
-pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 1000;
+pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 2000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Firewall {
@@ -261,7 +261,7 @@ impl NodeStartupConfig {
     }
 
     fn slices_to_strings(strs: Vec<&str>) -> Vec<String> {
-        strs.into_iter().map(|x| x.to_string()).collect()
+        strs.into_iter().map(to_string).collect()
     }
 
     fn make_establish_wallet_args(&self) -> Option<Vec<String>> {
@@ -481,7 +481,7 @@ impl NodeStartupConfigBuilder {
             firewall: None,
             memory: None,
             fake_public_key: None,
-            blockchain_service_url: None,
+            blockchain_service_url: Some("https://0.0.0.0".to_string()),
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
             scans_opt: None,
             log_level_opt: None,
@@ -643,7 +643,7 @@ impl NodeStartupConfigBuilder {
     }
 
     pub fn db_password(mut self, value: Option<&str>) -> Self {
-        self.db_password = value.map(|str| str.to_string());
+        self.db_password = value.map(to_string);
         self
     }
 
@@ -760,6 +760,10 @@ impl MASQNode for MASQRealNode {
 
     fn routes_data(&self) -> bool {
         self.guts.routes_data
+    }
+
+    fn country_code_opt(&self) -> Option<String> {
+        MASQNodeUtils::derive_country_code_opt(&self.node_addr())
     }
 }
 
@@ -1535,6 +1539,8 @@ mod tests {
                 "\"10000000000|1200|1200|490000000|2592000|490000000\"",
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                "--blockchain-service-url",
+                "https://0.0.0.0",
                 "--chain",
                 TEST_DEFAULT_MULTINODE_CHAIN.rec().literal_identifier,
                 "--db-password",
