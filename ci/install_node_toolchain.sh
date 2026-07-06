@@ -24,7 +24,7 @@ function common() {
 }
 
 case "$OSTYPE" in
-  msys)
+  msys* | cygwin*)
     init_for_windows
     ;;
   Darwin | darwin*)

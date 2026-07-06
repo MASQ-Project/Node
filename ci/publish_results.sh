@@ -4,7 +4,7 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 STATUS=$1
 
 case "$OSTYPE" in
-  msys)
+  msys* | cygwin*)
     GENERATED_TYPE="windows"
     ;;
   Darwin | darwin*)

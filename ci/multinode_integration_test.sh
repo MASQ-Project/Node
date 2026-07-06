@@ -3,7 +3,7 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 case "$OSTYPE" in
-  msys)
+  msys* | cygwin*)
     echo "Multinode Integration Tests don't run under Windows"
     ;;
   Darwin | darwin*)

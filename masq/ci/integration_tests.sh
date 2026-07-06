@@ -7,7 +7,7 @@ TOOLCHAIN_HOME="$1"
 pushd "$CI_DIR/.."
 ci/build.sh # Build here before sudo to make sure we don't produce any root-owned object files
 case "$OSTYPE" in
-    msys)
+    msys* | cygwin*)
         echo "Windows"
         ci/run_integration_tests.sh "$TOOLCHAIN_HOME"
         ;;
