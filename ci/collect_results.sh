@@ -3,7 +3,7 @@
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 function sudo_ask() {
   case "$OSTYPE" in
-    msys)
+    msys* | cygwin*)
       "$@"
       ;;
     Darwin | darwin* | linux*)
@@ -14,7 +14,7 @@ function sudo_ask() {
 
 function copy_binaries() {
   case "$OSTYPE" in
-    msys)
+    msys* | cygwin*)
       copy_windows_binaries
       ;;
     Darwin | darwin* | linux*)

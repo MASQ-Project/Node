@@ -10,7 +10,7 @@ if [[ "$PASSPHRASE" == "" ]]; then
   echo "Warning: PASSPHRASE is blank. Signing may fail."
 fi
 
-if [[ "$OSTYPE" == "msys" ]]; then
+if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
   NODE_EXECUTABLEW="${NODE_EXECUTABLE}W.exe"
   NODE_EXECUTABLE="$NODE_EXECUTABLE.exe"
   DNS_EXECUTABLEW="${DNS_EXECUTABLE}W.exe"
@@ -74,7 +74,7 @@ case "$OSTYPE" in
       codesign -s 'Developer ID Application: Substratum Services, Inc. (TKDGR66924)' -i 'net.substratum.dns-utility' -fv "target/release/$DNS_EXECUTABLE"
       codesign -v -v "target/release/$DNS_EXECUTABLE"
       ;;
-   msys)
+   msys* | cygwin*)
       cd "$CI_DIR/../node"
       azure_key_vault_sign "target/release/$NODE_EXECUTABLE"
       azure_key_vault_sign "target/release/$NODE_EXECUTABLEW"
@@ -108,7 +108,7 @@ case "$OSTYPE" in
           node/target/release/$NODE_EXECUTABLE
         zip -j SubstratumNode-macOS.dmg.zip node-ui/main-process/electron-builder-out/SubstratumNode*.dmg
         ;;
-   msys)
+   msys* | cygwin*)
         azure_key_vault_sign "node-ui/main-process/electron-builder-out/"SubstratumNode*.exe
         standard_signtool "node-ui/main-process/electron-builder-out/"SubstratumNode*.exe
         if command -v 7z >/dev/null 2>&1; then

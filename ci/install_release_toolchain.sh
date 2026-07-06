@@ -28,7 +28,7 @@ function install_windows() {
 }
 
 case "$OSTYPE" in
-  msys)
+  msys* | cygwin*)
     install_windows
     ;;
   Darwin | darwin*)

@@ -6,7 +6,7 @@ TOOLCHAIN_HOME="$1"
 
 pushd "$CI_DIR/.."
 case "$OSTYPE" in
-    msys)
+    msys* | cygwin*)
         echo "Windows"
         [[ $GITHUB_ACTIONS -eq true ]] && net stop sharedaccess || echo ICS already disabled
         [[ $GITHUB_ACTIONS -eq true ]] && net stop W3SVC || echo W3SVC service already disabled

@@ -18,7 +18,7 @@ then
 fi
 
 version="$1"
-regex="^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+regex="^(0|[1-9]\d*)\.(0|[1-9][0-9]*)\.(0|[1-9]\d*)$"
 
 if [[ $version =~ $regex ]]; then
   echo -e "${CYAN}Changing to the version number $version${NC}"

@@ -749,7 +749,7 @@ mod tests {
 
         let mut expected_heading_regex = format!(
             r#"^
-          _____ ______  ________   ________   _______          Node Version: \d\.\d\.\d
+          _____ ______  ________   ________   _______          Node Version: \d\.\d+\.\d
         /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
        /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
       /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS {}

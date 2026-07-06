@@ -11,7 +11,7 @@ export RUSTFLAGS="-D warnings -Anon-snake-case"
 cargo test --no-run --release -- --nocapture "_integration"
 
 case "$OSTYPE" in
-    msys)
+    msys* | cygwin*)
         echo "Windows"
         ci/run_integration_tests.sh sudo "$TOOLCHAIN_HOME"
         ci/run_integration_tests.sh user "$TOOLCHAIN_HOME"
